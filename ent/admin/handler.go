@@ -11,8 +11,19 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/mikestefanello/pagoda/ent"
+	"github.com/mikestefanello/pagoda/ent/attachment"
+	"github.com/mikestefanello/pagoda/ent/channel"
+	"github.com/mikestefanello/pagoda/ent/channelmember"
+	"github.com/mikestefanello/pagoda/ent/directmessage"
+	"github.com/mikestefanello/pagoda/ent/directmessagecontent"
+	"github.com/mikestefanello/pagoda/ent/message"
+	"github.com/mikestefanello/pagoda/ent/notification"
 	"github.com/mikestefanello/pagoda/ent/passwordtoken"
+	"github.com/mikestefanello/pagoda/ent/reaction"
 	"github.com/mikestefanello/pagoda/ent/user"
+	"github.com/mikestefanello/pagoda/ent/userprofile"
+	"github.com/mikestefanello/pagoda/ent/workspace"
+	"github.com/mikestefanello/pagoda/ent/workspacemember"
 )
 
 const dateTimeFormat = "2006-01-02T15:04:05"
@@ -32,10 +43,32 @@ func NewHandler(client *ent.Client, cfg HandlerConfig) *Handler {
 
 func (h *Handler) Create(ctx echo.Context, entityType EntityType) error {
 	switch entityType.(type) {
+	case *Attachment:
+		return h.AttachmentCreate(ctx)
+	case *Channel:
+		return h.ChannelCreate(ctx)
+	case *ChannelMember:
+		return h.ChannelMemberCreate(ctx)
+	case *DirectMessage:
+		return h.DirectMessageCreate(ctx)
+	case *DirectMessageContent:
+		return h.DirectMessageContentCreate(ctx)
+	case *Message:
+		return h.MessageCreate(ctx)
+	case *Notification:
+		return h.NotificationCreate(ctx)
 	case *PasswordToken:
 		return h.PasswordTokenCreate(ctx)
+	case *Reaction:
+		return h.ReactionCreate(ctx)
 	case *User:
 		return h.UserCreate(ctx)
+	case *UserProfile:
+		return h.UserProfileCreate(ctx)
+	case *Workspace:
+		return h.WorkspaceCreate(ctx)
+	case *WorkspaceMember:
+		return h.WorkspaceMemberCreate(ctx)
 	default:
 		return fmt.Errorf("unsupported entity type: %s", entityType)
 	}
@@ -43,10 +76,32 @@ func (h *Handler) Create(ctx echo.Context, entityType EntityType) error {
 
 func (h *Handler) Get(ctx echo.Context, entityType EntityType, id int) (url.Values, error) {
 	switch entityType.(type) {
+	case *Attachment:
+		return h.AttachmentGet(ctx, id)
+	case *Channel:
+		return h.ChannelGet(ctx, id)
+	case *ChannelMember:
+		return h.ChannelMemberGet(ctx, id)
+	case *DirectMessage:
+		return h.DirectMessageGet(ctx, id)
+	case *DirectMessageContent:
+		return h.DirectMessageContentGet(ctx, id)
+	case *Message:
+		return h.MessageGet(ctx, id)
+	case *Notification:
+		return h.NotificationGet(ctx, id)
 	case *PasswordToken:
 		return h.PasswordTokenGet(ctx, id)
+	case *Reaction:
+		return h.ReactionGet(ctx, id)
 	case *User:
 		return h.UserGet(ctx, id)
+	case *UserProfile:
+		return h.UserProfileGet(ctx, id)
+	case *Workspace:
+		return h.WorkspaceGet(ctx, id)
+	case *WorkspaceMember:
+		return h.WorkspaceMemberGet(ctx, id)
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %s", entityType)
 	}
@@ -54,10 +109,32 @@ func (h *Handler) Get(ctx echo.Context, entityType EntityType, id int) (url.Valu
 
 func (h *Handler) Delete(ctx echo.Context, entityType EntityType, id int) error {
 	switch entityType.(type) {
+	case *Attachment:
+		return h.AttachmentDelete(ctx, id)
+	case *Channel:
+		return h.ChannelDelete(ctx, id)
+	case *ChannelMember:
+		return h.ChannelMemberDelete(ctx, id)
+	case *DirectMessage:
+		return h.DirectMessageDelete(ctx, id)
+	case *DirectMessageContent:
+		return h.DirectMessageContentDelete(ctx, id)
+	case *Message:
+		return h.MessageDelete(ctx, id)
+	case *Notification:
+		return h.NotificationDelete(ctx, id)
 	case *PasswordToken:
 		return h.PasswordTokenDelete(ctx, id)
+	case *Reaction:
+		return h.ReactionDelete(ctx, id)
 	case *User:
 		return h.UserDelete(ctx, id)
+	case *UserProfile:
+		return h.UserProfileDelete(ctx, id)
+	case *Workspace:
+		return h.WorkspaceDelete(ctx, id)
+	case *WorkspaceMember:
+		return h.WorkspaceMemberDelete(ctx, id)
 	default:
 		return fmt.Errorf("unsupported entity type: %s", entityType)
 	}
@@ -65,10 +142,32 @@ func (h *Handler) Delete(ctx echo.Context, entityType EntityType, id int) error 
 
 func (h *Handler) Update(ctx echo.Context, entityType EntityType, id int) error {
 	switch entityType.(type) {
+	case *Attachment:
+		return h.AttachmentUpdate(ctx, id)
+	case *Channel:
+		return h.ChannelUpdate(ctx, id)
+	case *ChannelMember:
+		return h.ChannelMemberUpdate(ctx, id)
+	case *DirectMessage:
+		return h.DirectMessageUpdate(ctx, id)
+	case *DirectMessageContent:
+		return h.DirectMessageContentUpdate(ctx, id)
+	case *Message:
+		return h.MessageUpdate(ctx, id)
+	case *Notification:
+		return h.NotificationUpdate(ctx, id)
 	case *PasswordToken:
 		return h.PasswordTokenUpdate(ctx, id)
+	case *Reaction:
+		return h.ReactionUpdate(ctx, id)
 	case *User:
 		return h.UserUpdate(ctx, id)
+	case *UserProfile:
+		return h.UserProfileUpdate(ctx, id)
+	case *Workspace:
+		return h.WorkspaceUpdate(ctx, id)
+	case *WorkspaceMember:
+		return h.WorkspaceMemberUpdate(ctx, id)
 	default:
 		return fmt.Errorf("unsupported entity type: %s", entityType)
 	}
@@ -76,13 +175,846 @@ func (h *Handler) Update(ctx echo.Context, entityType EntityType, id int) error 
 
 func (h *Handler) List(ctx echo.Context, entityType EntityType) (*EntityList, error) {
 	switch entityType.(type) {
+	case *Attachment:
+		return h.AttachmentList(ctx)
+	case *Channel:
+		return h.ChannelList(ctx)
+	case *ChannelMember:
+		return h.ChannelMemberList(ctx)
+	case *DirectMessage:
+		return h.DirectMessageList(ctx)
+	case *DirectMessageContent:
+		return h.DirectMessageContentList(ctx)
+	case *Message:
+		return h.MessageList(ctx)
+	case *Notification:
+		return h.NotificationList(ctx)
 	case *PasswordToken:
 		return h.PasswordTokenList(ctx)
+	case *Reaction:
+		return h.ReactionList(ctx)
 	case *User:
 		return h.UserList(ctx)
+	case *UserProfile:
+		return h.UserProfileList(ctx)
+	case *Workspace:
+		return h.WorkspaceList(ctx)
+	case *WorkspaceMember:
+		return h.WorkspaceMemberList(ctx)
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %s", entityType)
 	}
+}
+
+func (h *Handler) AttachmentCreate(ctx echo.Context) error {
+	var payload Attachment
+	if err := h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := h.client.Attachment.Create()
+	op.SetFilename(payload.Filename)
+	op.SetFilepath(payload.Filepath)
+	op.SetFileSize(payload.FileSize)
+	op.SetMimeType(payload.MimeType)
+	if payload.MessageID != nil {
+		op.SetMessageID(*payload.MessageID)
+	}
+	if payload.DmContentID != nil {
+		op.SetDmContentID(*payload.DmContentID)
+	}
+	op.SetUploadedBy(payload.UploadedBy)
+	if payload.CreatedAt != nil {
+		op.SetCreatedAt(*payload.CreatedAt)
+	}
+	_, err := op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) AttachmentUpdate(ctx echo.Context, id int) error {
+	entity, err := h.client.Attachment.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return err
+	}
+
+	var payload Attachment
+	if err = h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := entity.Update()
+	op.SetFilename(payload.Filename)
+	op.SetFilepath(payload.Filepath)
+	op.SetFileSize(payload.FileSize)
+	op.SetMimeType(payload.MimeType)
+	op.SetNillableMessageID(payload.MessageID)
+	op.SetNillableDmContentID(payload.DmContentID)
+	op.SetUploadedBy(payload.UploadedBy)
+	_, err = op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) AttachmentDelete(ctx echo.Context, id int) error {
+	return h.client.Attachment.DeleteOneID(id).
+		Exec(ctx.Request().Context())
+}
+
+func (h *Handler) AttachmentList(ctx echo.Context) (*EntityList, error) {
+	page, offset := h.getPageAndOffset(ctx)
+	res, err := h.client.Attachment.
+		Query().
+		Limit(h.Config.ItemsPerPage + 1).
+		Offset(offset).
+		Order(attachment.ByID(sql.OrderDesc())).
+		All(ctx.Request().Context())
+
+	if err != nil {
+		return nil, err
+	}
+
+	list := &EntityList{
+		Columns: []string{
+			"Filename",
+			"Filepath",
+			"File size",
+			"Mime type",
+			"Message ID",
+			"Dm content ID",
+			"Uploaded by",
+			"Created at",
+		},
+		Entities:    make([]EntityValues, 0, len(res)),
+		Page:        page,
+		HasNextPage: len(res) > h.Config.ItemsPerPage,
+	}
+
+	for i := 0; i <= len(res)-1; i++ {
+		list.Entities = append(list.Entities, EntityValues{
+			ID: res[i].ID,
+			Values: []string{
+				res[i].Filename,
+				res[i].Filepath,
+				fmt.Sprint(res[i].FileSize),
+				res[i].MimeType,
+				fmt.Sprint(res[i].MessageID),
+				fmt.Sprint(res[i].DmContentID),
+				fmt.Sprint(res[i].UploadedBy),
+				res[i].CreatedAt.Format(h.Config.TimeFormat),
+			},
+		})
+	}
+
+	return list, err
+}
+
+func (h *Handler) AttachmentGet(ctx echo.Context, id int) (url.Values, error) {
+	entity, err := h.client.Attachment.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return nil, err
+	}
+
+	v := url.Values{}
+	v.Set("filename", entity.Filename)
+	v.Set("filepath", entity.Filepath)
+	v.Set("file_size", fmt.Sprint(entity.FileSize))
+	v.Set("mime_type", entity.MimeType)
+	v.Set("message_id", fmt.Sprint(entity.MessageID))
+	v.Set("dm_content_id", fmt.Sprint(entity.DmContentID))
+	v.Set("uploaded_by", fmt.Sprint(entity.UploadedBy))
+	return v, err
+}
+
+func (h *Handler) ChannelCreate(ctx echo.Context) error {
+	var payload Channel
+	if err := h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := h.client.Channel.Create()
+	op.SetName(payload.Name)
+	op.SetSlug(payload.Slug)
+	if payload.Description != nil {
+		op.SetDescription(*payload.Description)
+	}
+	op.SetIsPrivate(payload.IsPrivate)
+	op.SetWorkspaceID(payload.WorkspaceID)
+	op.SetCreatedBy(payload.CreatedBy)
+	if payload.CreatedAt != nil {
+		op.SetCreatedAt(*payload.CreatedAt)
+	}
+	if payload.UpdatedAt != nil {
+		op.SetUpdatedAt(*payload.UpdatedAt)
+	}
+	_, err := op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) ChannelUpdate(ctx echo.Context, id int) error {
+	entity, err := h.client.Channel.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return err
+	}
+
+	var payload Channel
+	if err = h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := entity.Update()
+	op.SetName(payload.Name)
+	op.SetSlug(payload.Slug)
+	if payload.Description == nil {
+		op.ClearDescription()
+	} else {
+		op.SetDescription(*payload.Description)
+	}
+	op.SetIsPrivate(payload.IsPrivate)
+	op.SetWorkspaceID(payload.WorkspaceID)
+	op.SetCreatedBy(payload.CreatedBy)
+	if payload.UpdatedAt == nil {
+		var empty time.Time
+		op.SetUpdatedAt(empty)
+	} else {
+		op.SetUpdatedAt(*payload.UpdatedAt)
+	}
+	_, err = op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) ChannelDelete(ctx echo.Context, id int) error {
+	return h.client.Channel.DeleteOneID(id).
+		Exec(ctx.Request().Context())
+}
+
+func (h *Handler) ChannelList(ctx echo.Context) (*EntityList, error) {
+	page, offset := h.getPageAndOffset(ctx)
+	res, err := h.client.Channel.
+		Query().
+		Limit(h.Config.ItemsPerPage + 1).
+		Offset(offset).
+		Order(channel.ByID(sql.OrderDesc())).
+		All(ctx.Request().Context())
+
+	if err != nil {
+		return nil, err
+	}
+
+	list := &EntityList{
+		Columns: []string{
+			"Name",
+			"Slug",
+			"Description",
+			"Is private",
+			"Workspace ID",
+			"Created by",
+			"Created at",
+			"Updated at",
+		},
+		Entities:    make([]EntityValues, 0, len(res)),
+		Page:        page,
+		HasNextPage: len(res) > h.Config.ItemsPerPage,
+	}
+
+	for i := 0; i <= len(res)-1; i++ {
+		list.Entities = append(list.Entities, EntityValues{
+			ID: res[i].ID,
+			Values: []string{
+				res[i].Name,
+				res[i].Slug,
+				res[i].Description,
+				fmt.Sprint(res[i].IsPrivate),
+				fmt.Sprint(res[i].WorkspaceID),
+				fmt.Sprint(res[i].CreatedBy),
+				res[i].CreatedAt.Format(h.Config.TimeFormat),
+				res[i].UpdatedAt.Format(h.Config.TimeFormat),
+			},
+		})
+	}
+
+	return list, err
+}
+
+func (h *Handler) ChannelGet(ctx echo.Context, id int) (url.Values, error) {
+	entity, err := h.client.Channel.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return nil, err
+	}
+
+	v := url.Values{}
+	v.Set("name", entity.Name)
+	v.Set("slug", entity.Slug)
+	v.Set("description", entity.Description)
+	v.Set("is_private", fmt.Sprint(entity.IsPrivate))
+	v.Set("workspace_id", fmt.Sprint(entity.WorkspaceID))
+	v.Set("created_by", fmt.Sprint(entity.CreatedBy))
+	v.Set("updated_at", entity.UpdatedAt.Format(dateTimeFormat))
+	return v, err
+}
+
+func (h *Handler) ChannelMemberCreate(ctx echo.Context) error {
+	var payload ChannelMember
+	if err := h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := h.client.ChannelMember.Create()
+	op.SetChannelID(payload.ChannelID)
+	op.SetUserID(payload.UserID)
+	if payload.JoinedAt != nil {
+		op.SetJoinedAt(*payload.JoinedAt)
+	}
+	if payload.LastReadAt != nil {
+		op.SetLastReadAt(*payload.LastReadAt)
+	}
+	_, err := op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) ChannelMemberUpdate(ctx echo.Context, id int) error {
+	entity, err := h.client.ChannelMember.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return err
+	}
+
+	var payload ChannelMember
+	if err = h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := entity.Update()
+	op.SetChannelID(payload.ChannelID)
+	op.SetUserID(payload.UserID)
+	if payload.JoinedAt == nil {
+		var empty time.Time
+		op.SetJoinedAt(empty)
+	} else {
+		op.SetJoinedAt(*payload.JoinedAt)
+	}
+	op.SetNillableLastReadAt(payload.LastReadAt)
+	_, err = op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) ChannelMemberDelete(ctx echo.Context, id int) error {
+	return h.client.ChannelMember.DeleteOneID(id).
+		Exec(ctx.Request().Context())
+}
+
+func (h *Handler) ChannelMemberList(ctx echo.Context) (*EntityList, error) {
+	page, offset := h.getPageAndOffset(ctx)
+	res, err := h.client.ChannelMember.
+		Query().
+		Limit(h.Config.ItemsPerPage + 1).
+		Offset(offset).
+		Order(channelmember.ByID(sql.OrderDesc())).
+		All(ctx.Request().Context())
+
+	if err != nil {
+		return nil, err
+	}
+
+	list := &EntityList{
+		Columns: []string{
+			"Channel ID",
+			"User ID",
+			"Joined at",
+			"Last read at",
+		},
+		Entities:    make([]EntityValues, 0, len(res)),
+		Page:        page,
+		HasNextPage: len(res) > h.Config.ItemsPerPage,
+	}
+
+	for i := 0; i <= len(res)-1; i++ {
+		list.Entities = append(list.Entities, EntityValues{
+			ID: res[i].ID,
+			Values: []string{
+				fmt.Sprint(res[i].ChannelID),
+				fmt.Sprint(res[i].UserID),
+				res[i].JoinedAt.Format(h.Config.TimeFormat),
+				res[i].LastReadAt.Format(h.Config.TimeFormat),
+			},
+		})
+	}
+
+	return list, err
+}
+
+func (h *Handler) ChannelMemberGet(ctx echo.Context, id int) (url.Values, error) {
+	entity, err := h.client.ChannelMember.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return nil, err
+	}
+
+	v := url.Values{}
+	v.Set("channel_id", fmt.Sprint(entity.ChannelID))
+	v.Set("user_id", fmt.Sprint(entity.UserID))
+	v.Set("joined_at", entity.JoinedAt.Format(dateTimeFormat))
+	v.Set("last_read_at", entity.LastReadAt.Format(dateTimeFormat))
+	return v, err
+}
+
+func (h *Handler) DirectMessageCreate(ctx echo.Context) error {
+	var payload DirectMessage
+	if err := h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := h.client.DirectMessage.Create()
+	op.SetUser1ID(payload.User1ID)
+	op.SetUser2ID(payload.User2ID)
+	if payload.LastMessageAt != nil {
+		op.SetLastMessageAt(*payload.LastMessageAt)
+	}
+	if payload.CreatedAt != nil {
+		op.SetCreatedAt(*payload.CreatedAt)
+	}
+	_, err := op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) DirectMessageUpdate(ctx echo.Context, id int) error {
+	entity, err := h.client.DirectMessage.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return err
+	}
+
+	var payload DirectMessage
+	if err = h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := entity.Update()
+	op.SetUser1ID(payload.User1ID)
+	op.SetUser2ID(payload.User2ID)
+	op.SetNillableLastMessageAt(payload.LastMessageAt)
+	_, err = op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) DirectMessageDelete(ctx echo.Context, id int) error {
+	return h.client.DirectMessage.DeleteOneID(id).
+		Exec(ctx.Request().Context())
+}
+
+func (h *Handler) DirectMessageList(ctx echo.Context) (*EntityList, error) {
+	page, offset := h.getPageAndOffset(ctx)
+	res, err := h.client.DirectMessage.
+		Query().
+		Limit(h.Config.ItemsPerPage + 1).
+		Offset(offset).
+		Order(directmessage.ByID(sql.OrderDesc())).
+		All(ctx.Request().Context())
+
+	if err != nil {
+		return nil, err
+	}
+
+	list := &EntityList{
+		Columns: []string{
+			"User1 ID",
+			"User2 ID",
+			"Last message at",
+			"Created at",
+		},
+		Entities:    make([]EntityValues, 0, len(res)),
+		Page:        page,
+		HasNextPage: len(res) > h.Config.ItemsPerPage,
+	}
+
+	for i := 0; i <= len(res)-1; i++ {
+		list.Entities = append(list.Entities, EntityValues{
+			ID: res[i].ID,
+			Values: []string{
+				fmt.Sprint(res[i].User1ID),
+				fmt.Sprint(res[i].User2ID),
+				res[i].LastMessageAt.Format(h.Config.TimeFormat),
+				res[i].CreatedAt.Format(h.Config.TimeFormat),
+			},
+		})
+	}
+
+	return list, err
+}
+
+func (h *Handler) DirectMessageGet(ctx echo.Context, id int) (url.Values, error) {
+	entity, err := h.client.DirectMessage.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return nil, err
+	}
+
+	v := url.Values{}
+	v.Set("user1_id", fmt.Sprint(entity.User1ID))
+	v.Set("user2_id", fmt.Sprint(entity.User2ID))
+	v.Set("last_message_at", entity.LastMessageAt.Format(dateTimeFormat))
+	return v, err
+}
+
+func (h *Handler) DirectMessageContentCreate(ctx echo.Context) error {
+	var payload DirectMessageContent
+	if err := h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := h.client.DirectMessageContent.Create()
+	op.SetContent(payload.Content)
+	op.SetDmID(payload.DmID)
+	op.SetUserID(payload.UserID)
+	if payload.CreatedAt != nil {
+		op.SetCreatedAt(*payload.CreatedAt)
+	}
+	if payload.EditedAt != nil {
+		op.SetEditedAt(*payload.EditedAt)
+	}
+	_, err := op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) DirectMessageContentUpdate(ctx echo.Context, id int) error {
+	entity, err := h.client.DirectMessageContent.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return err
+	}
+
+	var payload DirectMessageContent
+	if err = h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := entity.Update()
+	op.SetContent(payload.Content)
+	op.SetDmID(payload.DmID)
+	op.SetUserID(payload.UserID)
+	op.SetNillableEditedAt(payload.EditedAt)
+	_, err = op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) DirectMessageContentDelete(ctx echo.Context, id int) error {
+	return h.client.DirectMessageContent.DeleteOneID(id).
+		Exec(ctx.Request().Context())
+}
+
+func (h *Handler) DirectMessageContentList(ctx echo.Context) (*EntityList, error) {
+	page, offset := h.getPageAndOffset(ctx)
+	res, err := h.client.DirectMessageContent.
+		Query().
+		Limit(h.Config.ItemsPerPage + 1).
+		Offset(offset).
+		Order(directmessagecontent.ByID(sql.OrderDesc())).
+		All(ctx.Request().Context())
+
+	if err != nil {
+		return nil, err
+	}
+
+	list := &EntityList{
+		Columns: []string{
+			"Content",
+			"Dm ID",
+			"User ID",
+			"Created at",
+			"Edited at",
+		},
+		Entities:    make([]EntityValues, 0, len(res)),
+		Page:        page,
+		HasNextPage: len(res) > h.Config.ItemsPerPage,
+	}
+
+	for i := 0; i <= len(res)-1; i++ {
+		list.Entities = append(list.Entities, EntityValues{
+			ID: res[i].ID,
+			Values: []string{
+				res[i].Content,
+				fmt.Sprint(res[i].DmID),
+				fmt.Sprint(res[i].UserID),
+				res[i].CreatedAt.Format(h.Config.TimeFormat),
+				res[i].EditedAt.Format(h.Config.TimeFormat),
+			},
+		})
+	}
+
+	return list, err
+}
+
+func (h *Handler) DirectMessageContentGet(ctx echo.Context, id int) (url.Values, error) {
+	entity, err := h.client.DirectMessageContent.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return nil, err
+	}
+
+	v := url.Values{}
+	v.Set("content", entity.Content)
+	v.Set("dm_id", fmt.Sprint(entity.DmID))
+	v.Set("user_id", fmt.Sprint(entity.UserID))
+	v.Set("edited_at", entity.EditedAt.Format(dateTimeFormat))
+	return v, err
+}
+
+func (h *Handler) MessageCreate(ctx echo.Context) error {
+	var payload Message
+	if err := h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := h.client.Message.Create()
+	op.SetContent(payload.Content)
+	if payload.MessageType != nil {
+		op.SetMessageType(*payload.MessageType)
+	}
+	op.SetChannelID(payload.ChannelID)
+	op.SetUserID(payload.UserID)
+	if payload.ThreadID != nil {
+		op.SetThreadID(*payload.ThreadID)
+	}
+	if payload.ReplyCount != nil {
+		op.SetReplyCount(*payload.ReplyCount)
+	}
+	if payload.CreatedAt != nil {
+		op.SetCreatedAt(*payload.CreatedAt)
+	}
+	if payload.UpdatedAt != nil {
+		op.SetUpdatedAt(*payload.UpdatedAt)
+	}
+	if payload.EditedAt != nil {
+		op.SetEditedAt(*payload.EditedAt)
+	}
+	_, err := op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) MessageUpdate(ctx echo.Context, id int) error {
+	entity, err := h.client.Message.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return err
+	}
+
+	var payload Message
+	if err = h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := entity.Update()
+	op.SetContent(payload.Content)
+	if payload.MessageType == nil {
+		var empty message.MessageType
+		op.SetMessageType(empty)
+	} else {
+		op.SetMessageType(*payload.MessageType)
+	}
+	op.SetChannelID(payload.ChannelID)
+	op.SetUserID(payload.UserID)
+	op.SetNillableThreadID(payload.ThreadID)
+	if payload.ReplyCount == nil {
+		var empty int
+		op.SetReplyCount(empty)
+	} else {
+		op.SetReplyCount(*payload.ReplyCount)
+	}
+	if payload.UpdatedAt == nil {
+		var empty time.Time
+		op.SetUpdatedAt(empty)
+	} else {
+		op.SetUpdatedAt(*payload.UpdatedAt)
+	}
+	op.SetNillableEditedAt(payload.EditedAt)
+	_, err = op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) MessageDelete(ctx echo.Context, id int) error {
+	return h.client.Message.DeleteOneID(id).
+		Exec(ctx.Request().Context())
+}
+
+func (h *Handler) MessageList(ctx echo.Context) (*EntityList, error) {
+	page, offset := h.getPageAndOffset(ctx)
+	res, err := h.client.Message.
+		Query().
+		Limit(h.Config.ItemsPerPage + 1).
+		Offset(offset).
+		Order(message.ByID(sql.OrderDesc())).
+		All(ctx.Request().Context())
+
+	if err != nil {
+		return nil, err
+	}
+
+	list := &EntityList{
+		Columns: []string{
+			"Content",
+			"Message type",
+			"Channel ID",
+			"User ID",
+			"Thread ID",
+			"Reply count",
+			"Created at",
+			"Updated at",
+			"Edited at",
+		},
+		Entities:    make([]EntityValues, 0, len(res)),
+		Page:        page,
+		HasNextPage: len(res) > h.Config.ItemsPerPage,
+	}
+
+	for i := 0; i <= len(res)-1; i++ {
+		list.Entities = append(list.Entities, EntityValues{
+			ID: res[i].ID,
+			Values: []string{
+				res[i].Content,
+				fmt.Sprint(res[i].MessageType),
+				fmt.Sprint(res[i].ChannelID),
+				fmt.Sprint(res[i].UserID),
+				fmt.Sprint(res[i].ThreadID),
+				fmt.Sprint(res[i].ReplyCount),
+				res[i].CreatedAt.Format(h.Config.TimeFormat),
+				res[i].UpdatedAt.Format(h.Config.TimeFormat),
+				res[i].EditedAt.Format(h.Config.TimeFormat),
+			},
+		})
+	}
+
+	return list, err
+}
+
+func (h *Handler) MessageGet(ctx echo.Context, id int) (url.Values, error) {
+	entity, err := h.client.Message.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return nil, err
+	}
+
+	v := url.Values{}
+	v.Set("content", entity.Content)
+	v.Set("message_type", fmt.Sprint(entity.MessageType))
+	v.Set("channel_id", fmt.Sprint(entity.ChannelID))
+	v.Set("user_id", fmt.Sprint(entity.UserID))
+	v.Set("thread_id", fmt.Sprint(entity.ThreadID))
+	v.Set("reply_count", fmt.Sprint(entity.ReplyCount))
+	v.Set("updated_at", entity.UpdatedAt.Format(dateTimeFormat))
+	v.Set("edited_at", entity.EditedAt.Format(dateTimeFormat))
+	return v, err
+}
+
+func (h *Handler) NotificationCreate(ctx echo.Context) error {
+	var payload Notification
+	if err := h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := h.client.Notification.Create()
+	op.SetUserID(payload.UserID)
+	if payload.Type != nil {
+		op.SetType(*payload.Type)
+	}
+	op.SetTitle(payload.Title)
+	op.SetContent(payload.Content)
+	if payload.Link != nil {
+		op.SetLink(*payload.Link)
+	}
+	op.SetRead(payload.Read)
+	if payload.CreatedAt != nil {
+		op.SetCreatedAt(*payload.CreatedAt)
+	}
+	_, err := op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) NotificationUpdate(ctx echo.Context, id int) error {
+	entity, err := h.client.Notification.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return err
+	}
+
+	var payload Notification
+	if err = h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := entity.Update()
+	op.SetUserID(payload.UserID)
+	if payload.Type == nil {
+		var empty notification.Type
+		op.SetType(empty)
+	} else {
+		op.SetType(*payload.Type)
+	}
+	op.SetTitle(payload.Title)
+	op.SetContent(payload.Content)
+	if payload.Link == nil {
+		op.ClearLink()
+	} else {
+		op.SetLink(*payload.Link)
+	}
+	op.SetRead(payload.Read)
+	_, err = op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) NotificationDelete(ctx echo.Context, id int) error {
+	return h.client.Notification.DeleteOneID(id).
+		Exec(ctx.Request().Context())
+}
+
+func (h *Handler) NotificationList(ctx echo.Context) (*EntityList, error) {
+	page, offset := h.getPageAndOffset(ctx)
+	res, err := h.client.Notification.
+		Query().
+		Limit(h.Config.ItemsPerPage + 1).
+		Offset(offset).
+		Order(notification.ByID(sql.OrderDesc())).
+		All(ctx.Request().Context())
+
+	if err != nil {
+		return nil, err
+	}
+
+	list := &EntityList{
+		Columns: []string{
+			"User ID",
+			"Type",
+			"Title",
+			"Content",
+			"Link",
+			"Read",
+			"Created at",
+		},
+		Entities:    make([]EntityValues, 0, len(res)),
+		Page:        page,
+		HasNextPage: len(res) > h.Config.ItemsPerPage,
+	}
+
+	for i := 0; i <= len(res)-1; i++ {
+		list.Entities = append(list.Entities, EntityValues{
+			ID: res[i].ID,
+			Values: []string{
+				fmt.Sprint(res[i].UserID),
+				fmt.Sprint(res[i].Type),
+				res[i].Title,
+				res[i].Content,
+				res[i].Link,
+				fmt.Sprint(res[i].Read),
+				res[i].CreatedAt.Format(h.Config.TimeFormat),
+			},
+		})
+	}
+
+	return list, err
+}
+
+func (h *Handler) NotificationGet(ctx echo.Context, id int) (url.Values, error) {
+	entity, err := h.client.Notification.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return nil, err
+	}
+
+	v := url.Values{}
+	v.Set("user_id", fmt.Sprint(entity.UserID))
+	v.Set("type", fmt.Sprint(entity.Type))
+	v.Set("title", entity.Title)
+	v.Set("content", entity.Content)
+	v.Set("link", entity.Link)
+	v.Set("read", fmt.Sprint(entity.Read))
+	return v, err
 }
 
 func (h *Handler) PasswordTokenCreate(ctx echo.Context) error {
@@ -179,6 +1111,100 @@ func (h *Handler) PasswordTokenGet(ctx echo.Context, id int) (url.Values, error)
 	v := url.Values{}
 	v.Set("user_id", fmt.Sprint(entity.UserID))
 	v.Set("created_at", entity.CreatedAt.Format(dateTimeFormat))
+	return v, err
+}
+
+func (h *Handler) ReactionCreate(ctx echo.Context) error {
+	var payload Reaction
+	if err := h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := h.client.Reaction.Create()
+	op.SetEmoji(payload.Emoji)
+	op.SetMessageID(payload.MessageID)
+	op.SetUserID(payload.UserID)
+	if payload.CreatedAt != nil {
+		op.SetCreatedAt(*payload.CreatedAt)
+	}
+	_, err := op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) ReactionUpdate(ctx echo.Context, id int) error {
+	entity, err := h.client.Reaction.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return err
+	}
+
+	var payload Reaction
+	if err = h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := entity.Update()
+	op.SetEmoji(payload.Emoji)
+	op.SetMessageID(payload.MessageID)
+	op.SetUserID(payload.UserID)
+	_, err = op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) ReactionDelete(ctx echo.Context, id int) error {
+	return h.client.Reaction.DeleteOneID(id).
+		Exec(ctx.Request().Context())
+}
+
+func (h *Handler) ReactionList(ctx echo.Context) (*EntityList, error) {
+	page, offset := h.getPageAndOffset(ctx)
+	res, err := h.client.Reaction.
+		Query().
+		Limit(h.Config.ItemsPerPage + 1).
+		Offset(offset).
+		Order(reaction.ByID(sql.OrderDesc())).
+		All(ctx.Request().Context())
+
+	if err != nil {
+		return nil, err
+	}
+
+	list := &EntityList{
+		Columns: []string{
+			"Emoji",
+			"Message ID",
+			"User ID",
+			"Created at",
+		},
+		Entities:    make([]EntityValues, 0, len(res)),
+		Page:        page,
+		HasNextPage: len(res) > h.Config.ItemsPerPage,
+	}
+
+	for i := 0; i <= len(res)-1; i++ {
+		list.Entities = append(list.Entities, EntityValues{
+			ID: res[i].ID,
+			Values: []string{
+				res[i].Emoji,
+				fmt.Sprint(res[i].MessageID),
+				fmt.Sprint(res[i].UserID),
+				res[i].CreatedAt.Format(h.Config.TimeFormat),
+			},
+		})
+	}
+
+	return list, err
+}
+
+func (h *Handler) ReactionGet(ctx echo.Context, id int) (url.Values, error) {
+	entity, err := h.client.Reaction.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return nil, err
+	}
+
+	v := url.Values{}
+	v.Set("emoji", entity.Emoji)
+	v.Set("message_id", fmt.Sprint(entity.MessageID))
+	v.Set("user_id", fmt.Sprint(entity.UserID))
 	return v, err
 }
 
@@ -284,6 +1310,355 @@ func (h *Handler) UserGet(ctx echo.Context, id int) (url.Values, error) {
 	v.Set("email", entity.Email)
 	v.Set("verified", fmt.Sprint(entity.Verified))
 	v.Set("admin", fmt.Sprint(entity.Admin))
+	return v, err
+}
+
+func (h *Handler) UserProfileCreate(ctx echo.Context) error {
+	var payload UserProfile
+	if err := h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := h.client.UserProfile.Create()
+	op.SetUserID(payload.UserID)
+	if payload.AvatarUrl != nil {
+		op.SetAvatarURL(*payload.AvatarUrl)
+	}
+	if payload.Status != nil {
+		op.SetStatus(*payload.Status)
+	}
+	if payload.StatusMessage != nil {
+		op.SetStatusMessage(*payload.StatusMessage)
+	}
+	if payload.Timezone != nil {
+		op.SetTimezone(*payload.Timezone)
+	}
+	_, err := op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) UserProfileUpdate(ctx echo.Context, id int) error {
+	entity, err := h.client.UserProfile.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return err
+	}
+
+	var payload UserProfile
+	if err = h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := entity.Update()
+	op.SetUserID(payload.UserID)
+	if payload.AvatarUrl == nil {
+		op.ClearAvatarURL()
+	} else {
+		op.SetAvatarURL(*payload.AvatarUrl)
+	}
+	if payload.Status == nil {
+		var empty userprofile.Status
+		op.SetStatus(empty)
+	} else {
+		op.SetStatus(*payload.Status)
+	}
+	if payload.StatusMessage == nil {
+		op.ClearStatusMessage()
+	} else {
+		op.SetStatusMessage(*payload.StatusMessage)
+	}
+	if payload.Timezone == nil {
+		op.ClearTimezone()
+	} else {
+		op.SetTimezone(*payload.Timezone)
+	}
+	_, err = op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) UserProfileDelete(ctx echo.Context, id int) error {
+	return h.client.UserProfile.DeleteOneID(id).
+		Exec(ctx.Request().Context())
+}
+
+func (h *Handler) UserProfileList(ctx echo.Context) (*EntityList, error) {
+	page, offset := h.getPageAndOffset(ctx)
+	res, err := h.client.UserProfile.
+		Query().
+		Limit(h.Config.ItemsPerPage + 1).
+		Offset(offset).
+		Order(userprofile.ByID(sql.OrderDesc())).
+		All(ctx.Request().Context())
+
+	if err != nil {
+		return nil, err
+	}
+
+	list := &EntityList{
+		Columns: []string{
+			"User ID",
+			"Avatar url",
+			"Status",
+			"Status message",
+			"Timezone",
+		},
+		Entities:    make([]EntityValues, 0, len(res)),
+		Page:        page,
+		HasNextPage: len(res) > h.Config.ItemsPerPage,
+	}
+
+	for i := 0; i <= len(res)-1; i++ {
+		list.Entities = append(list.Entities, EntityValues{
+			ID: res[i].ID,
+			Values: []string{
+				fmt.Sprint(res[i].UserID),
+				res[i].AvatarURL,
+				fmt.Sprint(res[i].Status),
+				res[i].StatusMessage,
+				res[i].Timezone,
+			},
+		})
+	}
+
+	return list, err
+}
+
+func (h *Handler) UserProfileGet(ctx echo.Context, id int) (url.Values, error) {
+	entity, err := h.client.UserProfile.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return nil, err
+	}
+
+	v := url.Values{}
+	v.Set("user_id", fmt.Sprint(entity.UserID))
+	v.Set("avatar_url", entity.AvatarURL)
+	v.Set("status", fmt.Sprint(entity.Status))
+	v.Set("status_message", entity.StatusMessage)
+	v.Set("timezone", entity.Timezone)
+	return v, err
+}
+
+func (h *Handler) WorkspaceCreate(ctx echo.Context) error {
+	var payload Workspace
+	if err := h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := h.client.Workspace.Create()
+	op.SetName(payload.Name)
+	op.SetSlug(payload.Slug)
+	if payload.Description != nil {
+		op.SetDescription(*payload.Description)
+	}
+	op.SetOwnerID(payload.OwnerID)
+	if payload.CreatedAt != nil {
+		op.SetCreatedAt(*payload.CreatedAt)
+	}
+	if payload.UpdatedAt != nil {
+		op.SetUpdatedAt(*payload.UpdatedAt)
+	}
+	_, err := op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) WorkspaceUpdate(ctx echo.Context, id int) error {
+	entity, err := h.client.Workspace.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return err
+	}
+
+	var payload Workspace
+	if err = h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := entity.Update()
+	op.SetName(payload.Name)
+	op.SetSlug(payload.Slug)
+	if payload.Description == nil {
+		op.ClearDescription()
+	} else {
+		op.SetDescription(*payload.Description)
+	}
+	op.SetOwnerID(payload.OwnerID)
+	if payload.UpdatedAt == nil {
+		var empty time.Time
+		op.SetUpdatedAt(empty)
+	} else {
+		op.SetUpdatedAt(*payload.UpdatedAt)
+	}
+	_, err = op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) WorkspaceDelete(ctx echo.Context, id int) error {
+	return h.client.Workspace.DeleteOneID(id).
+		Exec(ctx.Request().Context())
+}
+
+func (h *Handler) WorkspaceList(ctx echo.Context) (*EntityList, error) {
+	page, offset := h.getPageAndOffset(ctx)
+	res, err := h.client.Workspace.
+		Query().
+		Limit(h.Config.ItemsPerPage + 1).
+		Offset(offset).
+		Order(workspace.ByID(sql.OrderDesc())).
+		All(ctx.Request().Context())
+
+	if err != nil {
+		return nil, err
+	}
+
+	list := &EntityList{
+		Columns: []string{
+			"Name",
+			"Slug",
+			"Description",
+			"Owner ID",
+			"Created at",
+			"Updated at",
+		},
+		Entities:    make([]EntityValues, 0, len(res)),
+		Page:        page,
+		HasNextPage: len(res) > h.Config.ItemsPerPage,
+	}
+
+	for i := 0; i <= len(res)-1; i++ {
+		list.Entities = append(list.Entities, EntityValues{
+			ID: res[i].ID,
+			Values: []string{
+				res[i].Name,
+				res[i].Slug,
+				res[i].Description,
+				fmt.Sprint(res[i].OwnerID),
+				res[i].CreatedAt.Format(h.Config.TimeFormat),
+				res[i].UpdatedAt.Format(h.Config.TimeFormat),
+			},
+		})
+	}
+
+	return list, err
+}
+
+func (h *Handler) WorkspaceGet(ctx echo.Context, id int) (url.Values, error) {
+	entity, err := h.client.Workspace.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return nil, err
+	}
+
+	v := url.Values{}
+	v.Set("name", entity.Name)
+	v.Set("slug", entity.Slug)
+	v.Set("description", entity.Description)
+	v.Set("owner_id", fmt.Sprint(entity.OwnerID))
+	v.Set("updated_at", entity.UpdatedAt.Format(dateTimeFormat))
+	return v, err
+}
+
+func (h *Handler) WorkspaceMemberCreate(ctx echo.Context) error {
+	var payload WorkspaceMember
+	if err := h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := h.client.WorkspaceMember.Create()
+	op.SetWorkspaceID(payload.WorkspaceID)
+	op.SetUserID(payload.UserID)
+	if payload.Role != nil {
+		op.SetRole(*payload.Role)
+	}
+	if payload.JoinedAt != nil {
+		op.SetJoinedAt(*payload.JoinedAt)
+	}
+	_, err := op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) WorkspaceMemberUpdate(ctx echo.Context, id int) error {
+	entity, err := h.client.WorkspaceMember.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return err
+	}
+
+	var payload WorkspaceMember
+	if err = h.bind(ctx, &payload); err != nil {
+		return err
+	}
+
+	op := entity.Update()
+	op.SetWorkspaceID(payload.WorkspaceID)
+	op.SetUserID(payload.UserID)
+	if payload.Role == nil {
+		var empty workspacemember.Role
+		op.SetRole(empty)
+	} else {
+		op.SetRole(*payload.Role)
+	}
+	if payload.JoinedAt == nil {
+		var empty time.Time
+		op.SetJoinedAt(empty)
+	} else {
+		op.SetJoinedAt(*payload.JoinedAt)
+	}
+	_, err = op.Save(ctx.Request().Context())
+	return err
+}
+
+func (h *Handler) WorkspaceMemberDelete(ctx echo.Context, id int) error {
+	return h.client.WorkspaceMember.DeleteOneID(id).
+		Exec(ctx.Request().Context())
+}
+
+func (h *Handler) WorkspaceMemberList(ctx echo.Context) (*EntityList, error) {
+	page, offset := h.getPageAndOffset(ctx)
+	res, err := h.client.WorkspaceMember.
+		Query().
+		Limit(h.Config.ItemsPerPage + 1).
+		Offset(offset).
+		Order(workspacemember.ByID(sql.OrderDesc())).
+		All(ctx.Request().Context())
+
+	if err != nil {
+		return nil, err
+	}
+
+	list := &EntityList{
+		Columns: []string{
+			"Workspace ID",
+			"User ID",
+			"Role",
+			"Joined at",
+		},
+		Entities:    make([]EntityValues, 0, len(res)),
+		Page:        page,
+		HasNextPage: len(res) > h.Config.ItemsPerPage,
+	}
+
+	for i := 0; i <= len(res)-1; i++ {
+		list.Entities = append(list.Entities, EntityValues{
+			ID: res[i].ID,
+			Values: []string{
+				fmt.Sprint(res[i].WorkspaceID),
+				fmt.Sprint(res[i].UserID),
+				fmt.Sprint(res[i].Role),
+				res[i].JoinedAt.Format(h.Config.TimeFormat),
+			},
+		})
+	}
+
+	return list, err
+}
+
+func (h *Handler) WorkspaceMemberGet(ctx echo.Context, id int) (url.Values, error) {
+	entity, err := h.client.WorkspaceMember.Get(ctx.Request().Context(), id)
+	if err != nil {
+		return nil, err
+	}
+
+	v := url.Values{}
+	v.Set("workspace_id", fmt.Sprint(entity.WorkspaceID))
+	v.Set("user_id", fmt.Sprint(entity.UserID))
+	v.Set("role", fmt.Sprint(entity.Role))
+	v.Set("joined_at", entity.JoinedAt.Format(dateTimeFormat))
 	return v, err
 }
 

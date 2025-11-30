@@ -6,8 +6,41 @@ import (
 	"entgo.io/ent/dialect/sql"
 )
 
+// Attachment is the predicate function for attachment builders.
+type Attachment func(*sql.Selector)
+
+// Channel is the predicate function for channel builders.
+type Channel func(*sql.Selector)
+
+// ChannelMember is the predicate function for channelmember builders.
+type ChannelMember func(*sql.Selector)
+
+// DirectMessage is the predicate function for directmessage builders.
+type DirectMessage func(*sql.Selector)
+
+// DirectMessageContent is the predicate function for directmessagecontent builders.
+type DirectMessageContent func(*sql.Selector)
+
+// Message is the predicate function for message builders.
+type Message func(*sql.Selector)
+
+// Notification is the predicate function for notification builders.
+type Notification func(*sql.Selector)
+
 // PasswordToken is the predicate function for passwordtoken builders.
 type PasswordToken func(*sql.Selector)
 
+// Reaction is the predicate function for reaction builders.
+type Reaction func(*sql.Selector)
+
 // User is the predicate function for user builders.
 type User func(*sql.Selector)
+
+// UserProfile is the predicate function for userprofile builders.
+type UserProfile func(*sql.Selector)
+
+// Workspace is the predicate function for workspace builders.
+type Workspace func(*sql.Selector)
+
+// WorkspaceMember is the predicate function for workspacemember builders.
+type WorkspaceMember func(*sql.Selector)

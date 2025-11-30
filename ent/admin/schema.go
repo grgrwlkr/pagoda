@@ -18,6 +18,411 @@ type FieldSchema struct {
 	Enums     []string
 }
 
+const NameAttachment = "Attachment"
+
+var fieldsAttachment = []*FieldSchema{
+	{
+		Name:      "filename",
+		Type:      field.TypeString,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "filepath",
+		Type:      field.TypeString,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "file_size",
+		Type:      field.TypeInt64,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "mime_type",
+		Type:      field.TypeString,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "message_id",
+		Type:      field.TypeInt,
+		Optional:  true,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "dm_content_id",
+		Type:      field.TypeInt,
+		Optional:  true,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "uploaded_by",
+		Type:      field.TypeInt,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "created_at",
+		Type:      field.TypeTime,
+		Optional:  false,
+		Immutable: true,
+		Sensitive: false,
+		Enums:     nil,
+	},
+}
+
+const NameChannel = "Channel"
+
+var fieldsChannel = []*FieldSchema{
+	{
+		Name:      "name",
+		Type:      field.TypeString,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "slug",
+		Type:      field.TypeString,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "description",
+		Type:      field.TypeString,
+		Optional:  true,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "is_private",
+		Type:      field.TypeBool,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "workspace_id",
+		Type:      field.TypeInt,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "created_by",
+		Type:      field.TypeInt,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "created_at",
+		Type:      field.TypeTime,
+		Optional:  false,
+		Immutable: true,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "updated_at",
+		Type:      field.TypeTime,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+}
+
+const NameChannelMember = "ChannelMember"
+
+var fieldsChannelMember = []*FieldSchema{
+	{
+		Name:      "channel_id",
+		Type:      field.TypeInt,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "user_id",
+		Type:      field.TypeInt,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "joined_at",
+		Type:      field.TypeTime,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "last_read_at",
+		Type:      field.TypeTime,
+		Optional:  true,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+}
+
+const NameDirectMessage = "DirectMessage"
+
+var fieldsDirectMessage = []*FieldSchema{
+	{
+		Name:      "user1_id",
+		Type:      field.TypeInt,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "user2_id",
+		Type:      field.TypeInt,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "last_message_at",
+		Type:      field.TypeTime,
+		Optional:  true,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "created_at",
+		Type:      field.TypeTime,
+		Optional:  false,
+		Immutable: true,
+		Sensitive: false,
+		Enums:     nil,
+	},
+}
+
+const NameDirectMessageContent = "DirectMessageContent"
+
+var fieldsDirectMessageContent = []*FieldSchema{
+	{
+		Name:      "content",
+		Type:      field.TypeString,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "dm_id",
+		Type:      field.TypeInt,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "user_id",
+		Type:      field.TypeInt,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "created_at",
+		Type:      field.TypeTime,
+		Optional:  false,
+		Immutable: true,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "edited_at",
+		Type:      field.TypeTime,
+		Optional:  true,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+}
+
+const NameMessage = "Message"
+
+var fieldsMessage = []*FieldSchema{
+	{
+		Name:      "content",
+		Type:      field.TypeString,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "message_type",
+		Type:      field.TypeEnum,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums: []string{
+			"text",
+			"file",
+			"thread_reply",
+		},
+	},
+	{
+		Name:      "channel_id",
+		Type:      field.TypeInt,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "user_id",
+		Type:      field.TypeInt,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "thread_id",
+		Type:      field.TypeInt,
+		Optional:  true,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "reply_count",
+		Type:      field.TypeInt,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "created_at",
+		Type:      field.TypeTime,
+		Optional:  false,
+		Immutable: true,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "updated_at",
+		Type:      field.TypeTime,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "edited_at",
+		Type:      field.TypeTime,
+		Optional:  true,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+}
+
+const NameNotification = "Notification"
+
+var fieldsNotification = []*FieldSchema{
+	{
+		Name:      "user_id",
+		Type:      field.TypeInt,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "type",
+		Type:      field.TypeEnum,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums: []string{
+			"mention",
+			"channel_mention",
+			"invite",
+			"direct_message",
+			"reaction",
+		},
+	},
+	{
+		Name:      "title",
+		Type:      field.TypeString,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "content",
+		Type:      field.TypeString,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "link",
+		Type:      field.TypeString,
+		Optional:  true,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "read",
+		Type:      field.TypeBool,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "created_at",
+		Type:      field.TypeTime,
+		Optional:  false,
+		Immutable: true,
+		Sensitive: false,
+		Enums:     nil,
+	},
+}
+
 const NamePasswordToken = "PasswordToken"
 
 var fieldsPasswordToken = []*FieldSchema{
@@ -42,6 +447,43 @@ var fieldsPasswordToken = []*FieldSchema{
 		Type:      field.TypeTime,
 		Optional:  false,
 		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+}
+
+const NameReaction = "Reaction"
+
+var fieldsReaction = []*FieldSchema{
+	{
+		Name:      "emoji",
+		Type:      field.TypeString,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "message_id",
+		Type:      field.TypeInt,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "user_id",
+		Type:      field.TypeInt,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "created_at",
+		Type:      field.TypeTime,
+		Optional:  false,
+		Immutable: true,
 		Sensitive: false,
 		Enums:     nil,
 	},
@@ -95,6 +537,150 @@ var fieldsUser = []*FieldSchema{
 		Type:      field.TypeTime,
 		Optional:  false,
 		Immutable: true,
+		Sensitive: false,
+		Enums:     nil,
+	},
+}
+
+const NameUserProfile = "UserProfile"
+
+var fieldsUserProfile = []*FieldSchema{
+	{
+		Name:      "user_id",
+		Type:      field.TypeInt,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "avatar_url",
+		Type:      field.TypeString,
+		Optional:  true,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "status",
+		Type:      field.TypeEnum,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums: []string{
+			"online",
+			"away",
+			"busy",
+			"offline",
+		},
+	},
+	{
+		Name:      "status_message",
+		Type:      field.TypeString,
+		Optional:  true,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "timezone",
+		Type:      field.TypeString,
+		Optional:  true,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+}
+
+const NameWorkspace = "Workspace"
+
+var fieldsWorkspace = []*FieldSchema{
+	{
+		Name:      "name",
+		Type:      field.TypeString,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "slug",
+		Type:      field.TypeString,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "description",
+		Type:      field.TypeString,
+		Optional:  true,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "owner_id",
+		Type:      field.TypeInt,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "created_at",
+		Type:      field.TypeTime,
+		Optional:  false,
+		Immutable: true,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "updated_at",
+		Type:      field.TypeTime,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+}
+
+const NameWorkspaceMember = "WorkspaceMember"
+
+var fieldsWorkspaceMember = []*FieldSchema{
+	{
+		Name:      "workspace_id",
+		Type:      field.TypeInt,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "user_id",
+		Type:      field.TypeInt,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums:     nil,
+	},
+	{
+		Name:      "role",
+		Type:      field.TypeEnum,
+		Optional:  false,
+		Immutable: false,
+		Sensitive: false,
+		Enums: []string{
+			"owner",
+			"admin",
+			"member",
+		},
+	},
+	{
+		Name:      "joined_at",
+		Type:      field.TypeTime,
+		Optional:  false,
+		Immutable: false,
 		Sensitive: false,
 		Enums:     nil,
 	},

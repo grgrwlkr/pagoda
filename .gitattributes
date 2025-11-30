@@ -1,0 +1,63 @@
+# Git attributes для разделения Pagoda и пользовательского кода
+
+# ============================================================================
+# PAGODA CORE FILES - оригинальные файлы проекта
+# ============================================================================
+
+# Core Pagoda пакеты (старайтесь не изменять)
+/pkg/** linguist-vendored=false
+/pkg/handlers/*.go linguist-vendored=false
+/pkg/services/*.go linguist-vendored=false
+/pkg/middleware/*.go linguist-vendored=false
+/pkg/ui/components/*.go linguist-vendored=false
+/pkg/ui/pages/*.go linguist-vendored=false
+/pkg/ui/layouts/*.go linguist-vendored=false
+
+# Pagoda конфигурация
+/config/config.go linguist-vendored=false
+/config/config_test.go linguist-vendored=false
+
+# Pagoda команды
+/cmd/** linguist-vendored=false
+
+# Pagoda схемы (оригинальные)
+/ent/schema/user.go linguist-vendored=false
+/ent/schema/passwordtoken.go linguist-vendored=false
+
+# ============================================================================
+# USER CODE - ваш код для Slack-клона
+# ============================================================================
+
+# Ваши handlers, services, UI
+/app/** linguist-vendored=false
+
+# Ваши схемы Ent (добавьте по мере создания)
+/ent/schema/workspace.go linguist-vendored=false
+/ent/schema/channel.go linguist-vendored=false
+/ent/schema/message.go linguist-vendored=false
+/ent/schema/directmessage.go linguist-vendored=false
+/ent/schema/reaction.go linguist-vendored=false
+/ent/schema/attachment.go linguist-vendored=false
+/ent/schema/notification.go linguist-vendored=false
+
+# Документация проекта
+/docs/** linguist-vendored=false
+/*.md linguist-vendored=false
+
+# ============================================================================
+# MERGE STRATEGY - стратегия слияния для Pagoda файлов
+# ============================================================================
+
+# Для Pagoda файлов предпочитаем версию из upstream при конфликтах
+/pkg/** merge=ours
+/config/config.go merge=ours
+/cmd/web/main.go merge=ours
+/ent/schema/user.go merge=ours
+/ent/schema/passwordtoken.go merge=ours
+
+# Для ваших файлов разрешаем конфликты вручную
+/app/** merge=union
+/ent/schema/workspace.go merge=union
+/ent/schema/channel.go merge=union
+/ent/schema/message.go merge=union
+

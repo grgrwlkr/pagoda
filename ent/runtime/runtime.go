@@ -5,15 +5,224 @@ package runtime
 import (
 	"time"
 
+	"github.com/mikestefanello/pagoda/ent/attachment"
+	"github.com/mikestefanello/pagoda/ent/channel"
+	"github.com/mikestefanello/pagoda/ent/channelmember"
+	"github.com/mikestefanello/pagoda/ent/directmessage"
+	"github.com/mikestefanello/pagoda/ent/directmessagecontent"
+	"github.com/mikestefanello/pagoda/ent/message"
+	"github.com/mikestefanello/pagoda/ent/notification"
 	"github.com/mikestefanello/pagoda/ent/passwordtoken"
+	"github.com/mikestefanello/pagoda/ent/reaction"
 	"github.com/mikestefanello/pagoda/ent/schema"
 	"github.com/mikestefanello/pagoda/ent/user"
+	"github.com/mikestefanello/pagoda/ent/userprofile"
+	"github.com/mikestefanello/pagoda/ent/workspace"
+	"github.com/mikestefanello/pagoda/ent/workspacemember"
 )
 
 // The init function reads all schema descriptors with runtime code
 // (default values, validators, hooks and policies) and stitches it
 // to their package variables.
 func init() {
+	attachmentFields := schema.Attachment{}.Fields()
+	_ = attachmentFields
+	// attachmentDescFilename is the schema descriptor for filename field.
+	attachmentDescFilename := attachmentFields[0].Descriptor()
+	// attachment.FilenameValidator is a validator for the "filename" field. It is called by the builders before save.
+	attachment.FilenameValidator = func() func(string) error {
+		validators := attachmentDescFilename.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(filename string) error {
+			for _, fn := range fns {
+				if err := fn(filename); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// attachmentDescFilepath is the schema descriptor for filepath field.
+	attachmentDescFilepath := attachmentFields[1].Descriptor()
+	// attachment.FilepathValidator is a validator for the "filepath" field. It is called by the builders before save.
+	attachment.FilepathValidator = func() func(string) error {
+		validators := attachmentDescFilepath.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(filepath string) error {
+			for _, fn := range fns {
+				if err := fn(filepath); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// attachmentDescFileSize is the schema descriptor for file_size field.
+	attachmentDescFileSize := attachmentFields[2].Descriptor()
+	// attachment.FileSizeValidator is a validator for the "file_size" field. It is called by the builders before save.
+	attachment.FileSizeValidator = attachmentDescFileSize.Validators[0].(func(int64) error)
+	// attachmentDescMimeType is the schema descriptor for mime_type field.
+	attachmentDescMimeType := attachmentFields[3].Descriptor()
+	// attachment.MimeTypeValidator is a validator for the "mime_type" field. It is called by the builders before save.
+	attachment.MimeTypeValidator = func() func(string) error {
+		validators := attachmentDescMimeType.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(mime_type string) error {
+			for _, fn := range fns {
+				if err := fn(mime_type); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// attachmentDescCreatedAt is the schema descriptor for created_at field.
+	attachmentDescCreatedAt := attachmentFields[7].Descriptor()
+	// attachment.DefaultCreatedAt holds the default value on creation for the created_at field.
+	attachment.DefaultCreatedAt = attachmentDescCreatedAt.Default.(func() time.Time)
+	channelFields := schema.Channel{}.Fields()
+	_ = channelFields
+	// channelDescName is the schema descriptor for name field.
+	channelDescName := channelFields[0].Descriptor()
+	// channel.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	channel.NameValidator = func() func(string) error {
+		validators := channelDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// channelDescSlug is the schema descriptor for slug field.
+	channelDescSlug := channelFields[1].Descriptor()
+	// channel.SlugValidator is a validator for the "slug" field. It is called by the builders before save.
+	channel.SlugValidator = func() func(string) error {
+		validators := channelDescSlug.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(slug string) error {
+			for _, fn := range fns {
+				if err := fn(slug); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// channelDescDescription is the schema descriptor for description field.
+	channelDescDescription := channelFields[2].Descriptor()
+	// channel.DescriptionValidator is a validator for the "description" field. It is called by the builders before save.
+	channel.DescriptionValidator = channelDescDescription.Validators[0].(func(string) error)
+	// channelDescIsPrivate is the schema descriptor for is_private field.
+	channelDescIsPrivate := channelFields[3].Descriptor()
+	// channel.DefaultIsPrivate holds the default value on creation for the is_private field.
+	channel.DefaultIsPrivate = channelDescIsPrivate.Default.(bool)
+	// channelDescCreatedAt is the schema descriptor for created_at field.
+	channelDescCreatedAt := channelFields[6].Descriptor()
+	// channel.DefaultCreatedAt holds the default value on creation for the created_at field.
+	channel.DefaultCreatedAt = channelDescCreatedAt.Default.(func() time.Time)
+	// channelDescUpdatedAt is the schema descriptor for updated_at field.
+	channelDescUpdatedAt := channelFields[7].Descriptor()
+	// channel.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	channel.DefaultUpdatedAt = channelDescUpdatedAt.Default.(func() time.Time)
+	// channel.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	channel.UpdateDefaultUpdatedAt = channelDescUpdatedAt.UpdateDefault.(func() time.Time)
+	channelmemberFields := schema.ChannelMember{}.Fields()
+	_ = channelmemberFields
+	// channelmemberDescJoinedAt is the schema descriptor for joined_at field.
+	channelmemberDescJoinedAt := channelmemberFields[2].Descriptor()
+	// channelmember.DefaultJoinedAt holds the default value on creation for the joined_at field.
+	channelmember.DefaultJoinedAt = channelmemberDescJoinedAt.Default.(func() time.Time)
+	directmessageFields := schema.DirectMessage{}.Fields()
+	_ = directmessageFields
+	// directmessageDescCreatedAt is the schema descriptor for created_at field.
+	directmessageDescCreatedAt := directmessageFields[3].Descriptor()
+	// directmessage.DefaultCreatedAt holds the default value on creation for the created_at field.
+	directmessage.DefaultCreatedAt = directmessageDescCreatedAt.Default.(func() time.Time)
+	directmessagecontentFields := schema.DirectMessageContent{}.Fields()
+	_ = directmessagecontentFields
+	// directmessagecontentDescContent is the schema descriptor for content field.
+	directmessagecontentDescContent := directmessagecontentFields[0].Descriptor()
+	// directmessagecontent.ContentValidator is a validator for the "content" field. It is called by the builders before save.
+	directmessagecontent.ContentValidator = directmessagecontentDescContent.Validators[0].(func(string) error)
+	// directmessagecontentDescCreatedAt is the schema descriptor for created_at field.
+	directmessagecontentDescCreatedAt := directmessagecontentFields[3].Descriptor()
+	// directmessagecontent.DefaultCreatedAt holds the default value on creation for the created_at field.
+	directmessagecontent.DefaultCreatedAt = directmessagecontentDescCreatedAt.Default.(func() time.Time)
+	messageFields := schema.Message{}.Fields()
+	_ = messageFields
+	// messageDescContent is the schema descriptor for content field.
+	messageDescContent := messageFields[0].Descriptor()
+	// message.ContentValidator is a validator for the "content" field. It is called by the builders before save.
+	message.ContentValidator = messageDescContent.Validators[0].(func(string) error)
+	// messageDescReplyCount is the schema descriptor for reply_count field.
+	messageDescReplyCount := messageFields[5].Descriptor()
+	// message.DefaultReplyCount holds the default value on creation for the reply_count field.
+	message.DefaultReplyCount = messageDescReplyCount.Default.(int)
+	// messageDescCreatedAt is the schema descriptor for created_at field.
+	messageDescCreatedAt := messageFields[6].Descriptor()
+	// message.DefaultCreatedAt holds the default value on creation for the created_at field.
+	message.DefaultCreatedAt = messageDescCreatedAt.Default.(func() time.Time)
+	// messageDescUpdatedAt is the schema descriptor for updated_at field.
+	messageDescUpdatedAt := messageFields[7].Descriptor()
+	// message.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	message.DefaultUpdatedAt = messageDescUpdatedAt.Default.(func() time.Time)
+	// message.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	message.UpdateDefaultUpdatedAt = messageDescUpdatedAt.UpdateDefault.(func() time.Time)
+	notificationFields := schema.Notification{}.Fields()
+	_ = notificationFields
+	// notificationDescTitle is the schema descriptor for title field.
+	notificationDescTitle := notificationFields[2].Descriptor()
+	// notification.TitleValidator is a validator for the "title" field. It is called by the builders before save.
+	notification.TitleValidator = func() func(string) error {
+		validators := notificationDescTitle.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(title string) error {
+			for _, fn := range fns {
+				if err := fn(title); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// notificationDescContent is the schema descriptor for content field.
+	notificationDescContent := notificationFields[3].Descriptor()
+	// notification.ContentValidator is a validator for the "content" field. It is called by the builders before save.
+	notification.ContentValidator = notificationDescContent.Validators[0].(func(string) error)
+	// notificationDescLink is the schema descriptor for link field.
+	notificationDescLink := notificationFields[4].Descriptor()
+	// notification.LinkValidator is a validator for the "link" field. It is called by the builders before save.
+	notification.LinkValidator = notificationDescLink.Validators[0].(func(string) error)
+	// notificationDescRead is the schema descriptor for read field.
+	notificationDescRead := notificationFields[5].Descriptor()
+	// notification.DefaultRead holds the default value on creation for the read field.
+	notification.DefaultRead = notificationDescRead.Default.(bool)
+	// notificationDescCreatedAt is the schema descriptor for created_at field.
+	notificationDescCreatedAt := notificationFields[6].Descriptor()
+	// notification.DefaultCreatedAt holds the default value on creation for the created_at field.
+	notification.DefaultCreatedAt = notificationDescCreatedAt.Default.(func() time.Time)
 	passwordtokenHooks := schema.PasswordToken{}.Hooks()
 	passwordtoken.Hooks[0] = passwordtokenHooks[0]
 	passwordtokenFields := schema.PasswordToken{}.Fields()
@@ -26,6 +235,30 @@ func init() {
 	passwordtokenDescCreatedAt := passwordtokenFields[2].Descriptor()
 	// passwordtoken.DefaultCreatedAt holds the default value on creation for the created_at field.
 	passwordtoken.DefaultCreatedAt = passwordtokenDescCreatedAt.Default.(func() time.Time)
+	reactionFields := schema.Reaction{}.Fields()
+	_ = reactionFields
+	// reactionDescEmoji is the schema descriptor for emoji field.
+	reactionDescEmoji := reactionFields[0].Descriptor()
+	// reaction.EmojiValidator is a validator for the "emoji" field. It is called by the builders before save.
+	reaction.EmojiValidator = func() func(string) error {
+		validators := reactionDescEmoji.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(emoji string) error {
+			for _, fn := range fns {
+				if err := fn(emoji); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// reactionDescCreatedAt is the schema descriptor for created_at field.
+	reactionDescCreatedAt := reactionFields[3].Descriptor()
+	// reaction.DefaultCreatedAt holds the default value on creation for the created_at field.
+	reaction.DefaultCreatedAt = reactionDescCreatedAt.Default.(func() time.Time)
 	userHooks := schema.User{}.Hooks()
 	user.Hooks[0] = userHooks[0]
 	userFields := schema.User{}.Fields()
@@ -68,6 +301,78 @@ func init() {
 	userDescCreatedAt := userFields[5].Descriptor()
 	// user.DefaultCreatedAt holds the default value on creation for the created_at field.
 	user.DefaultCreatedAt = userDescCreatedAt.Default.(func() time.Time)
+	userprofileFields := schema.UserProfile{}.Fields()
+	_ = userprofileFields
+	// userprofileDescAvatarURL is the schema descriptor for avatar_url field.
+	userprofileDescAvatarURL := userprofileFields[1].Descriptor()
+	// userprofile.AvatarURLValidator is a validator for the "avatar_url" field. It is called by the builders before save.
+	userprofile.AvatarURLValidator = userprofileDescAvatarURL.Validators[0].(func(string) error)
+	// userprofileDescStatusMessage is the schema descriptor for status_message field.
+	userprofileDescStatusMessage := userprofileFields[3].Descriptor()
+	// userprofile.StatusMessageValidator is a validator for the "status_message" field. It is called by the builders before save.
+	userprofile.StatusMessageValidator = userprofileDescStatusMessage.Validators[0].(func(string) error)
+	// userprofileDescTimezone is the schema descriptor for timezone field.
+	userprofileDescTimezone := userprofileFields[4].Descriptor()
+	// userprofile.TimezoneValidator is a validator for the "timezone" field. It is called by the builders before save.
+	userprofile.TimezoneValidator = userprofileDescTimezone.Validators[0].(func(string) error)
+	workspaceFields := schema.Workspace{}.Fields()
+	_ = workspaceFields
+	// workspaceDescName is the schema descriptor for name field.
+	workspaceDescName := workspaceFields[0].Descriptor()
+	// workspace.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	workspace.NameValidator = func() func(string) error {
+		validators := workspaceDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// workspaceDescSlug is the schema descriptor for slug field.
+	workspaceDescSlug := workspaceFields[1].Descriptor()
+	// workspace.SlugValidator is a validator for the "slug" field. It is called by the builders before save.
+	workspace.SlugValidator = func() func(string) error {
+		validators := workspaceDescSlug.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(slug string) error {
+			for _, fn := range fns {
+				if err := fn(slug); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// workspaceDescDescription is the schema descriptor for description field.
+	workspaceDescDescription := workspaceFields[2].Descriptor()
+	// workspace.DescriptionValidator is a validator for the "description" field. It is called by the builders before save.
+	workspace.DescriptionValidator = workspaceDescDescription.Validators[0].(func(string) error)
+	// workspaceDescCreatedAt is the schema descriptor for created_at field.
+	workspaceDescCreatedAt := workspaceFields[4].Descriptor()
+	// workspace.DefaultCreatedAt holds the default value on creation for the created_at field.
+	workspace.DefaultCreatedAt = workspaceDescCreatedAt.Default.(func() time.Time)
+	// workspaceDescUpdatedAt is the schema descriptor for updated_at field.
+	workspaceDescUpdatedAt := workspaceFields[5].Descriptor()
+	// workspace.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	workspace.DefaultUpdatedAt = workspaceDescUpdatedAt.Default.(func() time.Time)
+	// workspace.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	workspace.UpdateDefaultUpdatedAt = workspaceDescUpdatedAt.UpdateDefault.(func() time.Time)
+	workspacememberFields := schema.WorkspaceMember{}.Fields()
+	_ = workspacememberFields
+	// workspacememberDescJoinedAt is the schema descriptor for joined_at field.
+	workspacememberDescJoinedAt := workspacememberFields[3].Descriptor()
+	// workspacemember.DefaultJoinedAt holds the default value on creation for the joined_at field.
+	workspacemember.DefaultJoinedAt = workspacememberDescJoinedAt.Default.(func() time.Time)
 }
 
 const (

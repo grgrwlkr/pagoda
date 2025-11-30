@@ -8,6 +8,274 @@ import (
 )
 
 var (
+	// AttachmentsColumns holds the columns for the "attachments" table.
+	AttachmentsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "filename", Type: field.TypeString, Size: 255},
+		{Name: "filepath", Type: field.TypeString, Size: 500},
+		{Name: "file_size", Type: field.TypeInt64},
+		{Name: "mime_type", Type: field.TypeString, Size: 100},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "message_id", Type: field.TypeInt, Nullable: true},
+		{Name: "dm_content_id", Type: field.TypeInt, Nullable: true},
+		{Name: "uploaded_by", Type: field.TypeInt},
+		{Name: "direct_message_content_attachments", Type: field.TypeInt, Nullable: true},
+		{Name: "message_attachments", Type: field.TypeInt, Nullable: true},
+	}
+	// AttachmentsTable holds the schema information for the "attachments" table.
+	AttachmentsTable = &schema.Table{
+		Name:       "attachments",
+		Columns:    AttachmentsColumns,
+		PrimaryKey: []*schema.Column{AttachmentsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "attachments_messages_message",
+				Columns:    []*schema.Column{AttachmentsColumns[6]},
+				RefColumns: []*schema.Column{MessagesColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "attachments_direct_message_contents_dm_content",
+				Columns:    []*schema.Column{AttachmentsColumns[7]},
+				RefColumns: []*schema.Column{DirectMessageContentsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "attachments_users_uploader",
+				Columns:    []*schema.Column{AttachmentsColumns[8]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "attachments_direct_message_contents_attachments",
+				Columns:    []*schema.Column{AttachmentsColumns[9]},
+				RefColumns: []*schema.Column{DirectMessageContentsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "attachments_messages_attachments",
+				Columns:    []*schema.Column{AttachmentsColumns[10]},
+				RefColumns: []*schema.Column{MessagesColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+	}
+	// ChannelsColumns holds the columns for the "channels" table.
+	ChannelsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "name", Type: field.TypeString, Size: 100},
+		{Name: "slug", Type: field.TypeString, Size: 50},
+		{Name: "description", Type: field.TypeString, Nullable: true, Size: 500},
+		{Name: "is_private", Type: field.TypeBool, Default: false},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "workspace_id", Type: field.TypeInt},
+		{Name: "created_by", Type: field.TypeInt},
+		{Name: "workspace_channels", Type: field.TypeInt, Nullable: true},
+	}
+	// ChannelsTable holds the schema information for the "channels" table.
+	ChannelsTable = &schema.Table{
+		Name:       "channels",
+		Columns:    ChannelsColumns,
+		PrimaryKey: []*schema.Column{ChannelsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "channels_workspaces_workspace",
+				Columns:    []*schema.Column{ChannelsColumns[7]},
+				RefColumns: []*schema.Column{WorkspacesColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "channels_users_creator",
+				Columns:    []*schema.Column{ChannelsColumns[8]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "channels_workspaces_channels",
+				Columns:    []*schema.Column{ChannelsColumns[9]},
+				RefColumns: []*schema.Column{WorkspacesColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+	}
+	// ChannelMembersColumns holds the columns for the "channel_members" table.
+	ChannelMembersColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "joined_at", Type: field.TypeTime},
+		{Name: "last_read_at", Type: field.TypeTime, Nullable: true},
+		{Name: "channel_members", Type: field.TypeInt, Nullable: true},
+		{Name: "channel_id", Type: field.TypeInt},
+		{Name: "user_id", Type: field.TypeInt},
+	}
+	// ChannelMembersTable holds the schema information for the "channel_members" table.
+	ChannelMembersTable = &schema.Table{
+		Name:       "channel_members",
+		Columns:    ChannelMembersColumns,
+		PrimaryKey: []*schema.Column{ChannelMembersColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "channel_members_channels_members",
+				Columns:    []*schema.Column{ChannelMembersColumns[3]},
+				RefColumns: []*schema.Column{ChannelsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "channel_members_channels_channel",
+				Columns:    []*schema.Column{ChannelMembersColumns[4]},
+				RefColumns: []*schema.Column{ChannelsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "channel_members_users_user",
+				Columns:    []*schema.Column{ChannelMembersColumns[5]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+	}
+	// DirectMessagesColumns holds the columns for the "direct_messages" table.
+	DirectMessagesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "last_message_at", Type: field.TypeTime, Nullable: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "user1_id", Type: field.TypeInt},
+		{Name: "user2_id", Type: field.TypeInt},
+	}
+	// DirectMessagesTable holds the schema information for the "direct_messages" table.
+	DirectMessagesTable = &schema.Table{
+		Name:       "direct_messages",
+		Columns:    DirectMessagesColumns,
+		PrimaryKey: []*schema.Column{DirectMessagesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "direct_messages_users_user1",
+				Columns:    []*schema.Column{DirectMessagesColumns[3]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "direct_messages_users_user2",
+				Columns:    []*schema.Column{DirectMessagesColumns[4]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "directmessage_user1_id_user2_id",
+				Unique:  true,
+				Columns: []*schema.Column{DirectMessagesColumns[3], DirectMessagesColumns[4]},
+			},
+		},
+	}
+	// DirectMessageContentsColumns holds the columns for the "direct_message_contents" table.
+	DirectMessageContentsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "content", Type: field.TypeString, Size: 2147483647},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "edited_at", Type: field.TypeTime, Nullable: true},
+		{Name: "direct_message_messages", Type: field.TypeInt, Nullable: true},
+		{Name: "dm_id", Type: field.TypeInt},
+		{Name: "user_id", Type: field.TypeInt},
+	}
+	// DirectMessageContentsTable holds the schema information for the "direct_message_contents" table.
+	DirectMessageContentsTable = &schema.Table{
+		Name:       "direct_message_contents",
+		Columns:    DirectMessageContentsColumns,
+		PrimaryKey: []*schema.Column{DirectMessageContentsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "direct_message_contents_direct_messages_messages",
+				Columns:    []*schema.Column{DirectMessageContentsColumns[4]},
+				RefColumns: []*schema.Column{DirectMessagesColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "direct_message_contents_direct_messages_dm",
+				Columns:    []*schema.Column{DirectMessageContentsColumns[5]},
+				RefColumns: []*schema.Column{DirectMessagesColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "direct_message_contents_users_user",
+				Columns:    []*schema.Column{DirectMessageContentsColumns[6]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+	}
+	// MessagesColumns holds the columns for the "messages" table.
+	MessagesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "content", Type: field.TypeString, Size: 2147483647},
+		{Name: "message_type", Type: field.TypeEnum, Enums: []string{"text", "file", "thread_reply"}, Default: "text"},
+		{Name: "reply_count", Type: field.TypeInt, Default: 0},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "edited_at", Type: field.TypeTime, Nullable: true},
+		{Name: "channel_messages", Type: field.TypeInt, Nullable: true},
+		{Name: "channel_id", Type: field.TypeInt},
+		{Name: "user_id", Type: field.TypeInt},
+		{Name: "thread_id", Type: field.TypeInt, Nullable: true},
+	}
+	// MessagesTable holds the schema information for the "messages" table.
+	MessagesTable = &schema.Table{
+		Name:       "messages",
+		Columns:    MessagesColumns,
+		PrimaryKey: []*schema.Column{MessagesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "messages_channels_messages",
+				Columns:    []*schema.Column{MessagesColumns[7]},
+				RefColumns: []*schema.Column{ChannelsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "messages_channels_channel",
+				Columns:    []*schema.Column{MessagesColumns[8]},
+				RefColumns: []*schema.Column{ChannelsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "messages_users_user",
+				Columns:    []*schema.Column{MessagesColumns[9]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "messages_messages_thread",
+				Columns:    []*schema.Column{MessagesColumns[10]},
+				RefColumns: []*schema.Column{MessagesColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+	}
+	// NotificationsColumns holds the columns for the "notifications" table.
+	NotificationsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "type", Type: field.TypeEnum, Enums: []string{"mention", "channel_mention", "invite", "direct_message", "reaction"}, Default: "mention"},
+		{Name: "title", Type: field.TypeString, Size: 200},
+		{Name: "content", Type: field.TypeString, Size: 2147483647},
+		{Name: "link", Type: field.TypeString, Nullable: true, Size: 500},
+		{Name: "read", Type: field.TypeBool, Default: false},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "user_id", Type: field.TypeInt},
+	}
+	// NotificationsTable holds the schema information for the "notifications" table.
+	NotificationsTable = &schema.Table{
+		Name:       "notifications",
+		Columns:    NotificationsColumns,
+		PrimaryKey: []*schema.Column{NotificationsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "notifications_users_user",
+				Columns:    []*schema.Column{NotificationsColumns[7]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+	}
 	// PasswordTokensColumns holds the columns for the "password_tokens" table.
 	PasswordTokensColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -29,6 +297,41 @@ var (
 			},
 		},
 	}
+	// ReactionsColumns holds the columns for the "reactions" table.
+	ReactionsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "emoji", Type: field.TypeString, Size: 10},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "message_reactions", Type: field.TypeInt, Nullable: true},
+		{Name: "message_id", Type: field.TypeInt},
+		{Name: "user_id", Type: field.TypeInt},
+	}
+	// ReactionsTable holds the schema information for the "reactions" table.
+	ReactionsTable = &schema.Table{
+		Name:       "reactions",
+		Columns:    ReactionsColumns,
+		PrimaryKey: []*schema.Column{ReactionsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "reactions_messages_reactions",
+				Columns:    []*schema.Column{ReactionsColumns[3]},
+				RefColumns: []*schema.Column{MessagesColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "reactions_messages_message",
+				Columns:    []*schema.Column{ReactionsColumns[4]},
+				RefColumns: []*schema.Column{MessagesColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "reactions_users_user",
+				Columns:    []*schema.Column{ReactionsColumns[5]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+	}
 	// UsersColumns holds the columns for the "users" table.
 	UsersColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -45,13 +348,135 @@ var (
 		Columns:    UsersColumns,
 		PrimaryKey: []*schema.Column{UsersColumns[0]},
 	}
+	// UserProfilesColumns holds the columns for the "user_profiles" table.
+	UserProfilesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "avatar_url", Type: field.TypeString, Nullable: true, Size: 500},
+		{Name: "status", Type: field.TypeEnum, Enums: []string{"online", "away", "busy", "offline"}, Default: "offline"},
+		{Name: "status_message", Type: field.TypeString, Nullable: true, Size: 100},
+		{Name: "timezone", Type: field.TypeString, Nullable: true, Size: 50},
+		{Name: "user_id", Type: field.TypeInt},
+	}
+	// UserProfilesTable holds the schema information for the "user_profiles" table.
+	UserProfilesTable = &schema.Table{
+		Name:       "user_profiles",
+		Columns:    UserProfilesColumns,
+		PrimaryKey: []*schema.Column{UserProfilesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "user_profiles_users_user",
+				Columns:    []*schema.Column{UserProfilesColumns[5]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+	}
+	// WorkspacesColumns holds the columns for the "workspaces" table.
+	WorkspacesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "name", Type: field.TypeString, Size: 100},
+		{Name: "slug", Type: field.TypeString, Unique: true, Size: 50},
+		{Name: "description", Type: field.TypeString, Nullable: true, Size: 500},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "owner_id", Type: field.TypeInt},
+	}
+	// WorkspacesTable holds the schema information for the "workspaces" table.
+	WorkspacesTable = &schema.Table{
+		Name:       "workspaces",
+		Columns:    WorkspacesColumns,
+		PrimaryKey: []*schema.Column{WorkspacesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "workspaces_users_owner",
+				Columns:    []*schema.Column{WorkspacesColumns[6]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+	}
+	// WorkspaceMembersColumns holds the columns for the "workspace_members" table.
+	WorkspaceMembersColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "role", Type: field.TypeEnum, Enums: []string{"owner", "admin", "member"}, Default: "member"},
+		{Name: "joined_at", Type: field.TypeTime},
+		{Name: "workspace_members", Type: field.TypeInt, Nullable: true},
+		{Name: "workspace_id", Type: field.TypeInt},
+		{Name: "user_id", Type: field.TypeInt},
+	}
+	// WorkspaceMembersTable holds the schema information for the "workspace_members" table.
+	WorkspaceMembersTable = &schema.Table{
+		Name:       "workspace_members",
+		Columns:    WorkspaceMembersColumns,
+		PrimaryKey: []*schema.Column{WorkspaceMembersColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "workspace_members_workspaces_members",
+				Columns:    []*schema.Column{WorkspaceMembersColumns[3]},
+				RefColumns: []*schema.Column{WorkspacesColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "workspace_members_workspaces_workspace",
+				Columns:    []*schema.Column{WorkspaceMembersColumns[4]},
+				RefColumns: []*schema.Column{WorkspacesColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "workspace_members_users_user",
+				Columns:    []*schema.Column{WorkspaceMembersColumns[5]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+	}
 	// Tables holds all the tables in the schema.
 	Tables = []*schema.Table{
+		AttachmentsTable,
+		ChannelsTable,
+		ChannelMembersTable,
+		DirectMessagesTable,
+		DirectMessageContentsTable,
+		MessagesTable,
+		NotificationsTable,
 		PasswordTokensTable,
+		ReactionsTable,
 		UsersTable,
+		UserProfilesTable,
+		WorkspacesTable,
+		WorkspaceMembersTable,
 	}
 )
 
 func init() {
+	AttachmentsTable.ForeignKeys[0].RefTable = MessagesTable
+	AttachmentsTable.ForeignKeys[1].RefTable = DirectMessageContentsTable
+	AttachmentsTable.ForeignKeys[2].RefTable = UsersTable
+	AttachmentsTable.ForeignKeys[3].RefTable = DirectMessageContentsTable
+	AttachmentsTable.ForeignKeys[4].RefTable = MessagesTable
+	ChannelsTable.ForeignKeys[0].RefTable = WorkspacesTable
+	ChannelsTable.ForeignKeys[1].RefTable = UsersTable
+	ChannelsTable.ForeignKeys[2].RefTable = WorkspacesTable
+	ChannelMembersTable.ForeignKeys[0].RefTable = ChannelsTable
+	ChannelMembersTable.ForeignKeys[1].RefTable = ChannelsTable
+	ChannelMembersTable.ForeignKeys[2].RefTable = UsersTable
+	DirectMessagesTable.ForeignKeys[0].RefTable = UsersTable
+	DirectMessagesTable.ForeignKeys[1].RefTable = UsersTable
+	DirectMessageContentsTable.ForeignKeys[0].RefTable = DirectMessagesTable
+	DirectMessageContentsTable.ForeignKeys[1].RefTable = DirectMessagesTable
+	DirectMessageContentsTable.ForeignKeys[2].RefTable = UsersTable
+	MessagesTable.ForeignKeys[0].RefTable = ChannelsTable
+	MessagesTable.ForeignKeys[1].RefTable = ChannelsTable
+	MessagesTable.ForeignKeys[2].RefTable = UsersTable
+	MessagesTable.ForeignKeys[3].RefTable = MessagesTable
+	NotificationsTable.ForeignKeys[0].RefTable = UsersTable
 	PasswordTokensTable.ForeignKeys[0].RefTable = UsersTable
+	ReactionsTable.ForeignKeys[0].RefTable = MessagesTable
+	ReactionsTable.ForeignKeys[1].RefTable = MessagesTable
+	ReactionsTable.ForeignKeys[2].RefTable = UsersTable
+	UserProfilesTable.ForeignKeys[0].RefTable = UsersTable
+	WorkspacesTable.ForeignKeys[0].RefTable = UsersTable
+	WorkspaceMembersTable.ForeignKeys[0].RefTable = WorkspacesTable
+	WorkspaceMembersTable.ForeignKeys[1].RefTable = WorkspacesTable
+	WorkspaceMembersTable.ForeignKeys[2].RefTable = UsersTable
 }

@@ -12,10 +12,32 @@ import (
 // Tx is a transactional client that is created by calling Client.Tx().
 type Tx struct {
 	config
+	// Attachment is the client for interacting with the Attachment builders.
+	Attachment *AttachmentClient
+	// Channel is the client for interacting with the Channel builders.
+	Channel *ChannelClient
+	// ChannelMember is the client for interacting with the ChannelMember builders.
+	ChannelMember *ChannelMemberClient
+	// DirectMessage is the client for interacting with the DirectMessage builders.
+	DirectMessage *DirectMessageClient
+	// DirectMessageContent is the client for interacting with the DirectMessageContent builders.
+	DirectMessageContent *DirectMessageContentClient
+	// Message is the client for interacting with the Message builders.
+	Message *MessageClient
+	// Notification is the client for interacting with the Notification builders.
+	Notification *NotificationClient
 	// PasswordToken is the client for interacting with the PasswordToken builders.
 	PasswordToken *PasswordTokenClient
+	// Reaction is the client for interacting with the Reaction builders.
+	Reaction *ReactionClient
 	// User is the client for interacting with the User builders.
 	User *UserClient
+	// UserProfile is the client for interacting with the UserProfile builders.
+	UserProfile *UserProfileClient
+	// Workspace is the client for interacting with the Workspace builders.
+	Workspace *WorkspaceClient
+	// WorkspaceMember is the client for interacting with the WorkspaceMember builders.
+	WorkspaceMember *WorkspaceMemberClient
 
 	// lazily loaded.
 	client     *Client
@@ -147,8 +169,19 @@ func (tx *Tx) Client() *Client {
 }
 
 func (tx *Tx) init() {
+	tx.Attachment = NewAttachmentClient(tx.config)
+	tx.Channel = NewChannelClient(tx.config)
+	tx.ChannelMember = NewChannelMemberClient(tx.config)
+	tx.DirectMessage = NewDirectMessageClient(tx.config)
+	tx.DirectMessageContent = NewDirectMessageContentClient(tx.config)
+	tx.Message = NewMessageClient(tx.config)
+	tx.Notification = NewNotificationClient(tx.config)
 	tx.PasswordToken = NewPasswordTokenClient(tx.config)
+	tx.Reaction = NewReactionClient(tx.config)
 	tx.User = NewUserClient(tx.config)
+	tx.UserProfile = NewUserProfileClient(tx.config)
+	tx.Workspace = NewWorkspaceClient(tx.config)
+	tx.WorkspaceMember = NewWorkspaceMemberClient(tx.config)
 }
 
 // txDriver wraps the given dialect.Tx with a nop dialect.Driver implementation.
@@ -158,7 +191,7 @@ func (tx *Tx) init() {
 // of them in order to commit or rollback the transaction.
 //
 // If a closed transaction is embedded in one of the generated entities, and the entity
-// applies a query, for example: PasswordToken.QueryXXX(), the query will be executed
+// applies a query, for example: Attachment.QueryXXX(), the query will be executed
 // through the driver which created this transaction.
 //
 // Note that txDriver is not goroutine safe.

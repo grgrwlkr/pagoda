@@ -91,6 +91,25 @@
 - Создана структура проекта
 - Настроена синхронизация с Pagoda upstream
 
+### [2024-11-30] Фаза 1: Модели данных
+
+- ✅ Созданы все схемы Ent для Slack-клона:
+  - `workspace.go` - рабочее пространство
+  - `channel.go` - канал
+  - `message.go` - сообщение
+  - `directmessage.go` - прямое сообщение
+  - `directmessagecontent.go` - содержимое DM
+  - `reaction.go` - реакция на сообщение
+  - `attachment.go` - вложение файла
+  - `channelmember.go` - участник канала
+  - `workspacemember.go` - участник workspace
+  - `userprofile.go` - профиль пользователя (расширение User)
+  - `notification.go` - уведомление
+- ✅ Сгенерирован код Ent: `make ent-gen`
+- ✅ Все связи (edges) настроены
+- ✅ Добавлены валидации полей
+- ✅ Добавлен уникальный индекс для DirectMessage (user1_id, user2_id)
+
 ---
 
 ## Примечания

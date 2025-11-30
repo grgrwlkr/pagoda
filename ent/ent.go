@@ -12,8 +12,19 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"github.com/mikestefanello/pagoda/ent/attachment"
+	"github.com/mikestefanello/pagoda/ent/channel"
+	"github.com/mikestefanello/pagoda/ent/channelmember"
+	"github.com/mikestefanello/pagoda/ent/directmessage"
+	"github.com/mikestefanello/pagoda/ent/directmessagecontent"
+	"github.com/mikestefanello/pagoda/ent/message"
+	"github.com/mikestefanello/pagoda/ent/notification"
 	"github.com/mikestefanello/pagoda/ent/passwordtoken"
+	"github.com/mikestefanello/pagoda/ent/reaction"
 	"github.com/mikestefanello/pagoda/ent/user"
+	"github.com/mikestefanello/pagoda/ent/userprofile"
+	"github.com/mikestefanello/pagoda/ent/workspace"
+	"github.com/mikestefanello/pagoda/ent/workspacemember"
 )
 
 // ent aliases to avoid import conflicts in user's code.
@@ -74,8 +85,19 @@ var (
 func checkColumn(t, c string) error {
 	initCheck.Do(func() {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
-			passwordtoken.Table: passwordtoken.ValidColumn,
-			user.Table:          user.ValidColumn,
+			attachment.Table:           attachment.ValidColumn,
+			channel.Table:              channel.ValidColumn,
+			channelmember.Table:        channelmember.ValidColumn,
+			directmessage.Table:        directmessage.ValidColumn,
+			directmessagecontent.Table: directmessagecontent.ValidColumn,
+			message.Table:              message.ValidColumn,
+			notification.Table:         notification.ValidColumn,
+			passwordtoken.Table:        passwordtoken.ValidColumn,
+			reaction.Table:             reaction.ValidColumn,
+			user.Table:                 user.ValidColumn,
+			userprofile.Table:          userprofile.ValidColumn,
+			workspace.Table:            workspace.ValidColumn,
+			workspacemember.Table:      workspacemember.ValidColumn,
 		})
 	})
 	return columnCheck(t, c)
