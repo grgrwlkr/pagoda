@@ -27,6 +27,7 @@ const (
 	Files                = "files"
 	FilesSubmit          = "files.submit"
 	AdminTasks           = "admin:tasks"
+	WebSocket            = "websocket"
 )
 
 func AdminEntityList(entityTypeName string) string {
