@@ -36,6 +36,11 @@ func init() {
 	handlers.Register(new(WebSocket))
 }
 
+// ShouldRegister returns true if handler should be registered for the given app mode
+func (h *WebSocket) ShouldRegister(appMode string) bool {
+	return appMode == "slack"
+}
+
 // Init initializes the handler with dependencies from the container.
 func (h *WebSocket) Init(c *services.Container) error {
 	// Create WebSocket hub

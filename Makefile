@@ -56,14 +56,24 @@ admin: ## Create a new admin user (ie, make admin email=myemail@web.com)
 	go run cmd/admin/main.go --email=$(email)
 
 .PHONY: run
-run: ## Run the application
+run: ## Run the Pagoda application
 	@clear || true
 	go run cmd/web/main.go
 
+.PHONY: run-slack
+run-slack: ## Run the Slack messenger application
+	@clear || true
+	go run cmd/slack/main.go
+
 .PHONY: watch
-watch: ## Run the application and watch for changes with air to automatically rebuild
+watch: ## Run the Pagoda application and watch for changes with air to automatically rebuild
 	@clear || true
 	air
+
+.PHONY: watch-slack
+watch-slack: ## Run the Slack messenger application and watch for changes with air to automatically rebuild
+	@clear || true
+	air -c .air.slack.toml
 
 .PHONY: test
 test: ## Run all tests
@@ -78,5 +88,9 @@ css: ## Build and minify Tailwind CSS
 	./tailwindcss -i tailwind.css -o public/static/main.css -m
 
 .PHONY: build
-build: css ## Build CSS and compile the application binary
+build: css ## Build CSS and compile the Pagoda application binary
 	go build -o ./tmp/main ./cmd/web
+
+.PHONY: build-slack
+build-slack: css ## Build CSS and compile the Slack messenger application binary
+	go build -o ./tmp/main ./cmd/slack

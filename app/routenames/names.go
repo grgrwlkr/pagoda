@@ -2,6 +2,9 @@ package routenames
 
 // Messenger route names
 const (
+	// Root route
+	MessengerRoot = "messenger.root"
+
 	// Workspace routes
 	MessengerWorkspaceList         = "messenger.workspace.list"
 	MessengerWorkspaceView         = "messenger.workspace.view"

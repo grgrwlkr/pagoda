@@ -38,6 +38,7 @@ import (
 	"github.com/mikestefanello/pagoda/pkg/log"
 	"github.com/mikestefanello/pagoda/pkg/middleware"
 	"github.com/mikestefanello/pagoda/pkg/pager"
+	"github.com/mikestefanello/pagoda/pkg/redirect"
 	"github.com/mikestefanello/pagoda/pkg/services"
 	"github.com/spf13/afero"
 )
@@ -203,6 +204,11 @@ func init() {
 	handlers.Register(new(Messenger))
 }
 
+// ShouldRegister returns true if handler should be registered for the given app mode
+func (h *Messenger) ShouldRegister(appMode string) bool {
+	return appMode == "slack"
+}
+
 // Init initializes the handler with dependencies from the container.
 func (h *Messenger) Init(c *services.Container) error {
 	h.orm = c.ORM
@@ -216,6 +222,9 @@ func (h *Messenger) Init(c *services.Container) error {
 func (h *Messenger) Routes(g *echo.Group) {
 	// All routes require authentication
 	g = g.Group("", middleware.RequireAuthentication)
+
+	// Root redirect to first workspace or workspace list
+	g.GET("/", h.RootRedirect).Name = routenames.MessengerRoot
 
 	// Workspace routes
 	g.GET("/workspace", h.WorkspaceList).Name = routenames.MessengerWorkspaceList
@@ -263,6 +272,37 @@ func (h *Messenger) Routes(g *echo.Group) {
 // ============================================================================
 // Workspace Handlers
 // ============================================================================
+
+// RootRedirect redirects to the first workspace or workspace list
+func (h *Messenger) RootRedirect(ctx echo.Context) error {
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Get first workspace for user
+	workspaces, err := h.orm.WorkspaceMember.
+		Query().
+		Where(workspacemember.UserIDEQ(int(user.ID))).
+		QueryWorkspace().
+		Order(ent.Desc(workspace.FieldCreatedAt)).
+		Limit(1).
+		All(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to fetch workspaces")
+	}
+
+	if len(workspaces) > 0 {
+		// Redirect to first workspace
+		return redirect.New(ctx).
+			Route(routenames.MessengerWorkspaceView).
+			Params(workspaces[0].ID).
+			Go()
+	}
+
+	// No workspaces, redirect to workspace list
+	return redirect.New(ctx).
+		Route(routenames.MessengerWorkspaceList).
+		Go()
+}
 
 // WorkspaceList returns a list of workspaces for the authenticated user
 func (h *Messenger) WorkspaceList(ctx echo.Context) error {

@@ -16,6 +16,9 @@ import (
 )
 
 func main() {
+	// Set environment variable to indicate we're running Pagoda app
+	os.Setenv("PAGODA_APP_MODE", "pagoda")
+
 	// Start a new container.
 	c := services.NewContainer()
 	defer func() {
@@ -61,7 +64,6 @@ func main() {
 	// Wait for interrupt signal to gracefully shut down the web server and task runner.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
-	signal.Notify(quit, os.Kill)
 	<-quit
 }
 

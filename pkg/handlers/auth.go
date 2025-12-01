@@ -33,6 +33,11 @@ func init() {
 	Register(new(Auth))
 }
 
+// ShouldRegister returns true if handler should be registered for the given app mode
+func (h *Auth) ShouldRegister(appMode string) bool {
+	return appMode == "pagoda"
+}
+
 func (h *Auth) Init(c *services.Container) error {
 	h.config = c.Config
 	h.orm = c.ORM

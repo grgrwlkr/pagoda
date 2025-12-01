@@ -20,6 +20,11 @@ func init() {
 	Register(new(Cache))
 }
 
+// ShouldRegister returns true if handler should be registered for the given app mode
+func (h *Cache) ShouldRegister(appMode string) bool {
+	return appMode == "pagoda"
+}
+
 func (h *Cache) Init(c *services.Container) error {
 	h.cache = c.Cache
 	return nil

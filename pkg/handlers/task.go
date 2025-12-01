@@ -25,6 +25,11 @@ func init() {
 	Register(new(Task))
 }
 
+// ShouldRegister returns true if handler should be registered for the given app mode
+func (h *Task) ShouldRegister(appMode string) bool {
+	return appMode == "pagoda"
+}
+
 func (h *Task) Init(c *services.Container) error {
 	h.tasks = c.Tasks
 	return nil

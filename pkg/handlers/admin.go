@@ -31,6 +31,11 @@ func init() {
 	Register(new(Admin))
 }
 
+// ShouldRegister returns true if handler should be registered for the given app mode
+func (h *Admin) ShouldRegister(appMode string) bool {
+	return appMode == "pagoda"
+}
+
 func (h *Admin) Init(c *services.Container) error {
 	var err error
 	h.orm = c.ORM

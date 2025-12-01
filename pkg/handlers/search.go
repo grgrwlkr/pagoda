@@ -17,6 +17,11 @@ func init() {
 	Register(new(Search))
 }
 
+// ShouldRegister returns true if handler should be registered for the given app mode
+func (h *Search) ShouldRegister(appMode string) bool {
+	return appMode == "pagoda"
+}
+
 func (h *Search) Init(c *services.Container) error {
 	return nil
 }

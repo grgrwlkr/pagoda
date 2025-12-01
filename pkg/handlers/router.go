@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/gorilla/sessions"
@@ -80,8 +81,23 @@ func BuildRouter(c *services.Container) error {
 	// Error handler.
 	c.Web.HTTPErrorHandler = new(Error).Page
 
-	// Initialize and register all handlers.
+	// Get app mode from environment (default: pagoda)
+	appMode := os.Getenv("PAGODA_APP_MODE")
+	if appMode == "" {
+		appMode = "pagoda"
+	}
+
+	// Initialize and register handlers based on app mode
 	for _, h := range GetHandlers() {
+		// Check if handler should be registered for current mode
+		// If handler implements ModeHandler, use ShouldRegister
+		// Otherwise, register always (for backward compatibility)
+		if modeHandler, ok := h.(ModeHandler); ok {
+			if !modeHandler.ShouldRegister(appMode) {
+				continue
+			}
+		}
+
 		if err := h.Init(c); err != nil {
 			return err
 		}

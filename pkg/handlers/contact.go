@@ -20,6 +20,11 @@ func init() {
 	Register(new(Contact))
 }
 
+// ShouldRegister returns true if handler should be registered for the given app mode
+func (h *Contact) ShouldRegister(appMode string) bool {
+	return appMode == "pagoda"
+}
+
 func (h *Contact) Init(c *services.Container) error {
 	h.mail = c.Mail
 	return nil
