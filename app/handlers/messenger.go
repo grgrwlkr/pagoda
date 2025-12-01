@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -29,6 +30,7 @@ import (
 	"github.com/mikestefanello/pagoda/ent/directmessagecontent"
 	"github.com/mikestefanello/pagoda/ent/message"
 	"github.com/mikestefanello/pagoda/ent/reaction"
+	"github.com/mikestefanello/pagoda/ent/workspace"
 	"github.com/mikestefanello/pagoda/ent/workspacemember"
 	"github.com/mikestefanello/pagoda/pkg/context"
 	"github.com/mikestefanello/pagoda/pkg/handlers"
@@ -41,6 +43,55 @@ import (
 // fail is a helper to fail a request by returning a 500 error
 func fail(err error, log string) error {
 	return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("%s: %v", log, err))
+}
+
+// getWorkspaceMemberRole returns the role of a user in a workspace
+func (h *Messenger) getWorkspaceMemberRole(ctx echo.Context, workspaceID, userID int) (workspacemember.Role, error) {
+	member, err := h.orm.WorkspaceMember.
+		Query().
+		Where(workspacemember.WorkspaceIDEQ(workspaceID)).
+		Where(workspacemember.UserIDEQ(userID)).
+		Only(ctx.Request().Context())
+
+	if err != nil {
+		return "", err
+	}
+
+	return member.Role, nil
+}
+
+// requireWorkspaceOwnerOrAdmin checks if user is owner or admin of workspace
+func (h *Messenger) requireWorkspaceOwnerOrAdmin(ctx echo.Context, workspaceID, userID int) error {
+	role, err := h.getWorkspaceMemberRole(ctx, workspaceID, userID)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusForbidden, "you are not a member of this workspace")
+		}
+		return fail(err, "failed to check workspace role")
+	}
+
+	if role != workspacemember.RoleOwner && role != workspacemember.RoleAdmin {
+		return echo.NewHTTPError(http.StatusForbidden, "only owners and admins can perform this action")
+	}
+
+	return nil
+}
+
+// requireWorkspaceOwner checks if user is owner of workspace
+func (h *Messenger) requireWorkspaceOwner(ctx echo.Context, workspaceID, userID int) error {
+	role, err := h.getWorkspaceMemberRole(ctx, workspaceID, userID)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusForbidden, "you are not a member of this workspace")
+		}
+		return fail(err, "failed to check workspace role")
+	}
+
+	if role != workspacemember.RoleOwner {
+		return echo.NewHTTPError(http.StatusForbidden, "only workspace owner can perform this action")
+	}
+
+	return nil
 }
 
 // Messenger handles all messenger-related routes
@@ -145,8 +196,8 @@ func (h *Messenger) WorkspaceView(ctx echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "workspace not found")
 	}
 
-	// TODO: Check if user is a member
-	// TODO: Render workspace page
+	// Workspace membership is checked by RequireWorkspaceMember middleware
+	// Render workspace page
 	return messengerPages.Workspace(ctx)
 }
 
@@ -154,12 +205,39 @@ func (h *Messenger) WorkspaceView(ctx echo.Context) error {
 func (h *Messenger) WorkspaceCreate(ctx echo.Context) error {
 	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
 
-	// TODO: Parse form data
-	// For now, create a default workspace
-	ws, err := h.orm.Workspace.
+	// Parse form data
+	name := ctx.FormValue("name")
+	if name == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "workspace name is required")
+	}
+
+	slug := ctx.FormValue("slug")
+	if slug == "" {
+		// Generate slug from name if not provided
+		slug = generateSlug(name)
+	}
+
+	description := ctx.FormValue("description")
+
+	// Check if slug already exists
+	exists, err := h.orm.Workspace.
+		Query().
+		Where(workspace.SlugEQ(slug)).
+		Exist(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to check workspace slug")
+	}
+
+	if exists {
+		return echo.NewHTTPError(http.StatusConflict, "workspace with this slug already exists")
+	}
+
+	workspaceEntity, err := h.orm.Workspace.
 		Create().
-		SetName("My Workspace").
-		SetSlug("my-workspace").
+		SetName(name).
+		SetSlug(slug).
+		SetDescription(description).
 		SetOwnerID(int(user.ID)).
 		Save(ctx.Request().Context())
 
@@ -170,29 +248,95 @@ func (h *Messenger) WorkspaceCreate(ctx echo.Context) error {
 	// Add creator as owner member
 	_, err = h.orm.WorkspaceMember.
 		Create().
-		SetWorkspaceID(ws.ID).
+		SetWorkspaceID(workspaceEntity.ID).
 		SetUserID(int(user.ID)).
-		SetRole("owner").
+		SetRole(workspacemember.RoleOwner).
 		Save(ctx.Request().Context())
 
 	if err != nil {
 		return fail(err, "failed to add workspace member")
 	}
 
-	return ctx.JSON(http.StatusCreated, ws)
+	return ctx.JSON(http.StatusCreated, workspaceEntity)
+}
+
+// generateSlug generates a URL-friendly slug from a name
+func generateSlug(name string) string {
+	// Simple slug generation - convert to lowercase and replace spaces with hyphens
+	slug := strings.ToLower(name)
+	slug = strings.ReplaceAll(slug, " ", "-")
+	// Remove special characters (keep only alphanumeric and hyphens)
+	var result strings.Builder
+	for _, r := range slug {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
 }
 
 // WorkspaceUpdate updates a workspace
 func (h *Messenger) WorkspaceUpdate(ctx echo.Context) error {
-	_, err := strconv.Atoi(ctx.Param("id"))
+	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid workspace ID")
 	}
 
-	// TODO: Parse form data and update
-	// TODO: Check permissions (owner/admin only)
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
 
-	return ctx.JSON(http.StatusOK, map[string]string{"status": "updated"})
+	// Check permissions (owner/admin only)
+	if err := h.requireWorkspaceOwnerOrAdmin(ctx, id, int(user.ID)); err != nil {
+		return err
+	}
+
+	// Get workspace (workspace is already loaded by LoadWorkspace middleware)
+	workspaceEntity := ctx.Get(messengerMiddleware.WorkspaceKey).(*ent.Workspace)
+	id = workspaceEntity.ID
+
+	// Parse form data
+	update := h.orm.Workspace.UpdateOneID(id)
+
+	if name := ctx.FormValue("name"); name != "" {
+		update = update.SetName(name)
+	}
+
+	if slug := ctx.FormValue("slug"); slug != "" {
+		// Check if slug already exists (excluding current workspace)
+		exists, err := h.orm.Workspace.
+			Query().
+			Where(workspace.SlugEQ(slug)).
+			Where(workspace.IDNEQ(id)).
+			Exist(ctx.Request().Context())
+
+		if err != nil {
+			return fail(err, "failed to check workspace slug")
+		}
+
+		if exists {
+			return echo.NewHTTPError(http.StatusConflict, "workspace with this slug already exists")
+		}
+
+		update = update.SetSlug(slug)
+	}
+
+	if description := ctx.FormValue("description"); description != "" {
+		update = update.SetDescription(description)
+	}
+
+	workspaceEntity, err = update.Save(ctx.Request().Context())
+	if err != nil {
+		return fail(err, "failed to update workspace")
+	}
+
+	// Send WebSocket event
+	if h.hub != nil {
+		event := ws.ChannelUpdatedEvent(int64(id))
+		// Broadcast to all workspace members
+		// TODO: Implement SendToWorkspace method
+		h.hub.Broadcast(event.ToJSON())
+	}
+
+	return ctx.JSON(http.StatusOK, workspaceEntity)
 }
 
 // WorkspaceDelete deletes a workspace
@@ -202,7 +346,13 @@ func (h *Messenger) WorkspaceDelete(ctx echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid workspace ID")
 	}
 
-	// TODO: Check permissions (owner only)
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Check permissions (owner only)
+	if err := h.requireWorkspaceOwner(ctx, id, int(user.ID)); err != nil {
+		return err
+	}
+
 	err = h.orm.Workspace.DeleteOneID(id).Exec(ctx.Request().Context())
 	if err != nil {
 		return fail(err, "failed to delete workspace")
@@ -213,14 +363,130 @@ func (h *Messenger) WorkspaceDelete(ctx echo.Context) error {
 
 // WorkspaceAddMember adds a member to a workspace
 func (h *Messenger) WorkspaceAddMember(ctx echo.Context) error {
-	// TODO: Implement
-	return ctx.JSON(http.StatusOK, map[string]string{"status": "not implemented"})
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid workspace ID")
+	}
+
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Check permissions (owner/admin only)
+	if err := h.requireWorkspaceOwnerOrAdmin(ctx, id, int(user.ID)); err != nil {
+		return err
+	}
+
+	// Get user ID from form
+	userIDStr := ctx.FormValue("user_id")
+	if userIDStr == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "user_id is required")
+	}
+
+	targetUserID, err := strconv.Atoi(userIDStr)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid user_id")
+	}
+
+	// Check if target user exists
+	_, err = h.orm.User.Get(ctx.Request().Context(), targetUserID)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "user not found")
+		}
+		return fail(err, "failed to get user")
+	}
+
+	// Check if user is already a member
+	exists, err := h.orm.WorkspaceMember.
+		Query().
+		Where(workspacemember.WorkspaceIDEQ(id)).
+		Where(workspacemember.UserIDEQ(targetUserID)).
+		Exist(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to check membership")
+	}
+
+	if exists {
+		return echo.NewHTTPError(http.StatusConflict, "user is already a member of this workspace")
+	}
+
+	// Get role from form (default to member)
+	roleStr := ctx.FormValue("role")
+	if roleStr == "" {
+		roleStr = "member"
+	}
+
+	role := workspacemember.Role(roleStr)
+	if role != workspacemember.RoleOwner && role != workspacemember.RoleAdmin && role != workspacemember.RoleMember {
+		role = workspacemember.RoleMember
+	}
+
+	// Create workspace member
+	member, err := h.orm.WorkspaceMember.
+		Create().
+		SetWorkspaceID(id).
+		SetUserID(targetUserID).
+		SetRole(role).
+		Save(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to add workspace member")
+	}
+
+	return ctx.JSON(http.StatusCreated, member)
 }
 
 // WorkspaceRemoveMember removes a member from a workspace
 func (h *Messenger) WorkspaceRemoveMember(ctx echo.Context) error {
-	// TODO: Implement
-	return ctx.JSON(http.StatusOK, map[string]string{"status": "not implemented"})
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid workspace ID")
+	}
+
+	userIDStr := ctx.Param("user_id")
+	if userIDStr == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "user_id is required")
+	}
+
+	targetUserID, err := strconv.Atoi(userIDStr)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid user_id")
+	}
+
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Check permissions (owner/admin only, or user removing themselves)
+	if targetUserID != int(user.ID) {
+		if err := h.requireWorkspaceOwnerOrAdmin(ctx, id, int(user.ID)); err != nil {
+			return err
+		}
+	}
+
+	// Prevent removing the owner
+	targetRole, err := h.getWorkspaceMemberRole(ctx, id, targetUserID)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "user is not a member of this workspace")
+		}
+		return fail(err, "failed to check member role")
+	}
+
+	if targetRole == workspacemember.RoleOwner {
+		return echo.NewHTTPError(http.StatusForbidden, "cannot remove workspace owner")
+	}
+
+	// Delete workspace member
+	_, err = h.orm.WorkspaceMember.
+		Delete().
+		Where(workspacemember.WorkspaceIDEQ(id)).
+		Where(workspacemember.UserIDEQ(targetUserID)).
+		Exec(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to remove workspace member")
+	}
+
+	return ctx.NoContent(http.StatusNoContent)
 }
 
 // ============================================================================
@@ -263,7 +529,7 @@ func (h *Messenger) ChannelView(ctx echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "channel not found")
 	}
 
-	// TODO: Check if user is a member
+	// Channel membership is checked by RequireChannelMember middleware
 	return messengerPages.Channel(ctx, int64(ch.ID), ch.Name)
 }
 
@@ -276,12 +542,56 @@ func (h *Messenger) ChannelCreate(ctx echo.Context) error {
 
 	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
 
-	// TODO: Parse form data
-	// For now, create a default channel
+	// Verify user is a member of workspace
+	exists, err := h.orm.WorkspaceMember.
+		Query().
+		Where(workspacemember.WorkspaceIDEQ(workspaceID)).
+		Where(workspacemember.UserIDEQ(int(user.ID))).
+		Exist(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to check workspace membership")
+	}
+
+	if !exists {
+		return echo.NewHTTPError(http.StatusForbidden, "you are not a member of this workspace")
+	}
+
+	// Parse form data
+	name := ctx.FormValue("name")
+	if name == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "channel name is required")
+	}
+
+	slug := ctx.FormValue("slug")
+	if slug == "" {
+		slug = generateSlug(name)
+	}
+
+	description := ctx.FormValue("description")
+	isPrivate := ctx.FormValue("is_private") == "true" || ctx.FormValue("is_private") == "1"
+
+	// Check if slug already exists in workspace
+	exists, err = h.orm.Channel.
+		Query().
+		Where(channel.WorkspaceIDEQ(workspaceID)).
+		Where(channel.SlugEQ(slug)).
+		Exist(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to check channel slug")
+	}
+
+	if exists {
+		return echo.NewHTTPError(http.StatusConflict, "channel with this slug already exists in this workspace")
+	}
+
 	ch, err := h.orm.Channel.
 		Create().
-		SetName("New Channel").
-		SetSlug("new-channel").
+		SetName(name).
+		SetSlug(slug).
+		SetDescription(description).
+		SetIsPrivate(isPrivate).
 		SetWorkspaceID(workspaceID).
 		SetCreatedBy(int(user.ID)).
 		Save(ctx.Request().Context())
@@ -301,31 +611,281 @@ func (h *Messenger) ChannelCreate(ctx echo.Context) error {
 		return fail(err, "failed to add channel member")
 	}
 
+	// Send WebSocket event
+	if h.hub != nil {
+		event := ws.ChannelUpdatedEvent(int64(ch.ID))
+		h.hub.SendToChannel(int64(ch.ID), event.ToJSON())
+	}
+
 	return ctx.JSON(http.StatusCreated, ch)
 }
 
 // ChannelUpdate updates a channel
 func (h *Messenger) ChannelUpdate(ctx echo.Context) error {
-	// TODO: Implement
-	return ctx.JSON(http.StatusOK, map[string]string{"status": "not implemented"})
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid channel ID")
+	}
+
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Get channel
+	ch, err := h.orm.Channel.Get(ctx.Request().Context(), id)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "channel not found")
+		}
+		return fail(err, "failed to get channel")
+	}
+
+	// Check if user is creator or workspace owner/admin
+	if ch.CreatedBy != int(user.ID) {
+		// Check workspace role
+		if err := h.requireWorkspaceOwnerOrAdmin(ctx, ch.WorkspaceID, int(user.ID)); err != nil {
+			return err
+		}
+	}
+
+	// Parse form data
+	update := h.orm.Channel.UpdateOneID(id)
+
+	if name := ctx.FormValue("name"); name != "" {
+		update = update.SetName(name)
+	}
+
+	if slug := ctx.FormValue("slug"); slug != "" {
+		// Check if slug already exists in workspace (excluding current channel)
+		exists, err := h.orm.Channel.
+			Query().
+			Where(channel.WorkspaceIDEQ(ch.WorkspaceID)).
+			Where(channel.SlugEQ(slug)).
+			Where(channel.IDNEQ(id)).
+			Exist(ctx.Request().Context())
+
+		if err != nil {
+			return fail(err, "failed to check channel slug")
+		}
+
+		if exists {
+			return echo.NewHTTPError(http.StatusConflict, "channel with this slug already exists in this workspace")
+		}
+
+		update = update.SetSlug(slug)
+	}
+
+	if description := ctx.FormValue("description"); description != "" {
+		update = update.SetDescription(description)
+	}
+
+	if isPrivateStr := ctx.FormValue("is_private"); isPrivateStr != "" {
+		isPrivate := isPrivateStr == "true" || isPrivateStr == "1"
+		update = update.SetIsPrivate(isPrivate)
+	}
+
+	ch, err = update.Save(ctx.Request().Context())
+	if err != nil {
+		return fail(err, "failed to update channel")
+	}
+
+	// Send WebSocket event
+	if h.hub != nil {
+		event := ws.ChannelUpdatedEvent(int64(id))
+		h.hub.SendToChannel(int64(id), event.ToJSON())
+	}
+
+	return ctx.JSON(http.StatusOK, ch)
 }
 
 // ChannelDelete deletes a channel
 func (h *Messenger) ChannelDelete(ctx echo.Context) error {
-	// TODO: Implement
-	return ctx.JSON(http.StatusOK, map[string]string{"status": "not implemented"})
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid channel ID")
+	}
+
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Get channel
+	ch, err := h.orm.Channel.Get(ctx.Request().Context(), id)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "channel not found")
+		}
+		return fail(err, "failed to get channel")
+	}
+
+	// Check if user is creator or workspace owner/admin
+	if ch.CreatedBy != int(user.ID) {
+		// Check workspace role
+		if err := h.requireWorkspaceOwnerOrAdmin(ctx, ch.WorkspaceID, int(user.ID)); err != nil {
+			return err
+		}
+	}
+
+	// Delete channel
+	err = h.orm.Channel.DeleteOneID(id).Exec(ctx.Request().Context())
+	if err != nil {
+		return fail(err, "failed to delete channel")
+	}
+
+	return ctx.NoContent(http.StatusNoContent)
 }
 
 // ChannelAddMember adds a member to a channel
 func (h *Messenger) ChannelAddMember(ctx echo.Context) error {
-	// TODO: Implement
-	return ctx.JSON(http.StatusOK, map[string]string{"status": "not implemented"})
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid channel ID")
+	}
+
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Get channel
+	ch, err := h.orm.Channel.Get(ctx.Request().Context(), id)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "channel not found")
+		}
+		return fail(err, "failed to get channel")
+	}
+
+	// Verify user is a member of workspace
+	exists, err := h.orm.WorkspaceMember.
+		Query().
+		Where(workspacemember.WorkspaceIDEQ(ch.WorkspaceID)).
+		Where(workspacemember.UserIDEQ(int(user.ID))).
+		Exist(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to check workspace membership")
+	}
+
+	if !exists {
+		return echo.NewHTTPError(http.StatusForbidden, "you are not a member of this workspace")
+	}
+
+	// Get user ID from form
+	userIDStr := ctx.FormValue("user_id")
+	if userIDStr == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "user_id is required")
+	}
+
+	targetUserID, err := strconv.Atoi(userIDStr)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid user_id")
+	}
+
+	// Check if target user is a workspace member
+	exists, err = h.orm.WorkspaceMember.
+		Query().
+		Where(workspacemember.WorkspaceIDEQ(ch.WorkspaceID)).
+		Where(workspacemember.UserIDEQ(targetUserID)).
+		Exist(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to check workspace membership")
+	}
+
+	if !exists {
+		return echo.NewHTTPError(http.StatusForbidden, "target user is not a member of this workspace")
+	}
+
+	// Check if user is already a channel member
+	exists, err = h.orm.ChannelMember.
+		Query().
+		Where(channelmember.ChannelIDEQ(id)).
+		Where(channelmember.UserIDEQ(targetUserID)).
+		Exist(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to check channel membership")
+	}
+
+	if exists {
+		return echo.NewHTTPError(http.StatusConflict, "user is already a member of this channel")
+	}
+
+	// Create channel member
+	member, err := h.orm.ChannelMember.
+		Create().
+		SetChannelID(id).
+		SetUserID(targetUserID).
+		Save(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to add channel member")
+	}
+
+	// Send WebSocket event
+	if h.hub != nil {
+		event := ws.MemberJoinedEvent(int64(id), int64(targetUserID))
+		h.hub.SendToChannel(int64(id), event.ToJSON())
+	}
+
+	return ctx.JSON(http.StatusCreated, member)
 }
 
 // ChannelRemoveMember removes a member from a channel
 func (h *Messenger) ChannelRemoveMember(ctx echo.Context) error {
-	// TODO: Implement
-	return ctx.JSON(http.StatusOK, map[string]string{"status": "not implemented"})
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid channel ID")
+	}
+
+	userIDStr := ctx.Param("user_id")
+	if userIDStr == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "user_id is required")
+	}
+
+	targetUserID, err := strconv.Atoi(userIDStr)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid user_id")
+	}
+
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Get channel
+	ch, err := h.orm.Channel.Get(ctx.Request().Context(), id)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "channel not found")
+		}
+		return fail(err, "failed to get channel")
+	}
+
+	// Allow user to remove themselves, or require workspace owner/admin/creator
+	if targetUserID != int(user.ID) {
+		if ch.CreatedBy != int(user.ID) {
+			if err := h.requireWorkspaceOwnerOrAdmin(ctx, ch.WorkspaceID, int(user.ID)); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Delete channel member
+	_, err = h.orm.ChannelMember.
+		Delete().
+		Where(channelmember.ChannelIDEQ(id)).
+		Where(channelmember.UserIDEQ(targetUserID)).
+		Exec(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to remove channel member")
+	}
+
+	// Send WebSocket event
+	if h.hub != nil {
+		event := &ws.Event{
+			Type: ws.EventTypeMemberLeft,
+			Data: map[string]interface{}{
+				"channel_id": int64(id),
+				"user_id":    int64(targetUserID),
+			},
+		}
+		h.hub.SendToChannel(int64(id), event.ToJSON())
+	}
+
+	return ctx.NoContent(http.StatusNoContent)
 }
 
 // ChannelMessages returns messages in a channel with pagination
@@ -382,7 +942,7 @@ func (h *Messenger) MessageCreate(ctx echo.Context) error {
 
 	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
 
-	// TODO: Parse form data
+	// Parse form data
 	content := ctx.FormValue("content")
 	if content == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "message content is required")
