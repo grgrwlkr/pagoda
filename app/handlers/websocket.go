@@ -11,13 +11,15 @@ package handlers
 
 import (
 	"net/http"
+	"net/url"
 
 	gorillaWS "github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
-	"github.com/mikestefanello/pagoda/ent"
 	ws "github.com/mikestefanello/pagoda/app/websocket"
+	"github.com/mikestefanello/pagoda/ent"
 	"github.com/mikestefanello/pagoda/pkg/context"
 	"github.com/mikestefanello/pagoda/pkg/handlers"
+	"github.com/mikestefanello/pagoda/pkg/log"
 	"github.com/mikestefanello/pagoda/pkg/middleware"
 	"github.com/mikestefanello/pagoda/pkg/routenames"
 	"github.com/mikestefanello/pagoda/pkg/services"
@@ -36,10 +38,10 @@ func init() {
 func (h *WebSocket) Init(c *services.Container) error {
 	// Create WebSocket hub
 	h.hub = ws.NewHub(c.ORM)
-	
+
 	// Start the hub in a goroutine
 	go h.hub.Run()
-	
+
 	return nil
 }
 
@@ -57,25 +59,62 @@ func (h *WebSocket) HandleWebSocket(ctx echo.Context) error {
 		return echo.NewHTTPError(http.StatusUnauthorized, "Authentication required")
 	}
 
+	// Get logger from context
+	logger := log.Ctx(ctx)
+
+	// Get app host from config for origin checking
+	appHost := ctx.Echo().Server.Addr
+	if appHost == "" {
+		appHost = "localhost:8000"
+	}
+
 	// Upgrade connection to WebSocket
 	upgrader := gorillaWS.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
-			// TODO: Add proper origin checking based on config
-			return true
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				// Allow requests without Origin header (e.g., from same origin)
+				return true
+			}
+
+			originURL, err := url.Parse(origin)
+			if err != nil {
+				return false
+			}
+
+			// In development, allow localhost connections
+			// In production, you should check against allowed origins from config
+			host := originURL.Host
+			if host == "" {
+				return false
+			}
+
+			// Allow same origin and localhost for development
+			// TODO: Add config-based origin checking for production
+			return host == appHost ||
+				host == "localhost:8000" ||
+				host == "127.0.0.1:8000" ||
+				originURL.Scheme == "http" && (host == "localhost" || host == "127.0.0.1")
 		},
 	}
 
 	wsConn, err := upgrader.Upgrade(ctx.Response(), ctx.Request(), nil)
 	if err != nil {
+		logger.Error("WebSocket upgrade failed", "error", err)
 		return err
 	}
 
-	// Create connection
+	userEntity := user.(*ent.User)
+
+	// Create connection with context and ORM
 	conn := &ws.Connection{
 		WS:     wsConn,
 		Send:   make(chan []byte, 256),
-		UserID: int64(user.(*ent.User).ID),
+		UserID: int64(userEntity.ID),
 		Hub:    h.hub,
+		Ctx:    ctx.Request().Context(),
+		ORM:    h.hub.ORM,
+		Logger: logger,
 	}
 
 	// Register connection
@@ -89,10 +128,11 @@ func (h *WebSocket) HandleWebSocket(ctx echo.Context) error {
 	onlineEvent := ws.UserOnlineEvent(conn.UserID)
 	h.hub.Broadcast(onlineEvent.ToJSON())
 
+	logger.Info("WebSocket connection established", "user_id", conn.UserID)
+
 	return nil
 }
 
 // ============================================================================
 // CUSTOM CODE END
 // ============================================================================
-

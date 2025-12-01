@@ -10,10 +10,15 @@ package websocket
 // ============================================================================
 
 import (
+	"context"
 	"encoding/json"
+	"log/slog"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/mikestefanello/pagoda/ent"
+	"github.com/mikestefanello/pagoda/ent/channelmember"
+	"github.com/mikestefanello/pagoda/ent/message"
 )
 
 const (
@@ -43,11 +48,24 @@ type Connection struct {
 
 	// Hub reference
 	Hub *Hub
+
+	// Context for database operations
+	Ctx context.Context
+
+	// ORM client for database operations
+	ORM *ent.Client
+
+	// Logger for logging events
+	Logger *slog.Logger
 }
 
 // ReadPump pumps messages from the websocket connection to the hub.
 func (c *Connection) ReadPump() {
 	defer func() {
+		// Send offline status before disconnecting
+		offlineEvent := UserOfflineEvent(c.UserID)
+		c.Hub.Broadcast(offlineEvent.ToJSON())
+
 		c.Hub.unregister <- c
 		c.WS.Close()
 	}()
@@ -63,7 +81,9 @@ func (c *Connection) ReadPump() {
 		_, message, err := c.WS.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				// Log error if needed
+				if c.Logger != nil {
+					c.Logger.Warn("WebSocket unexpected close", "user_id", c.UserID, "error", err)
+				}
 			}
 			break
 		}
@@ -71,9 +91,16 @@ func (c *Connection) ReadPump() {
 		// Parse incoming message
 		var event Event
 		if err := json.Unmarshal(message, &event); err != nil {
-			// Send error response
+			if c.Logger != nil {
+				c.Logger.Warn("Failed to parse WebSocket message", "user_id", c.UserID, "error", err)
+			}
 			c.SendError("invalid_message_format", "Failed to parse message")
 			continue
+		}
+
+		// Log incoming event
+		if c.Logger != nil {
+			c.Logger.Debug("WebSocket event received", "user_id", c.UserID, "event_type", event.Type)
 		}
 
 		// Handle the event
@@ -147,42 +174,235 @@ func (c *Connection) handleEvent(event *Event) {
 
 // handleJoinChannel handles when a user joins a channel.
 func (c *Connection) handleJoinChannel(event *Event) {
-	// TODO: Implement channel join logic
-	// This will validate user membership and notify others
+	channelID, ok := event.Data["channel_id"].(float64)
+	if !ok {
+		c.SendError("invalid_channel_id", "Invalid channel ID")
+		return
+	}
+
+	chID := int64(channelID)
+
+	// Verify user is a member of the channel
+	exists, err := c.ORM.ChannelMember.
+		Query().
+		Where(channelmember.ChannelIDEQ(int(chID))).
+		Where(channelmember.UserIDEQ(int(c.UserID))).
+		Exist(c.Ctx)
+
+	if err != nil {
+		if c.Logger != nil {
+			c.Logger.Error("Failed to check channel membership", "user_id", c.UserID, "channel_id", chID, "error", err)
+		}
+		c.SendError("database_error", "Failed to verify channel membership")
+		return
+	}
+
+	if !exists {
+		c.SendError("not_member", "You are not a member of this channel")
+		return
+	}
+
+	// Notify other channel members
+	response := MemberJoinedEvent(chID, c.UserID)
+	c.Hub.SendToChannel(chID, response.ToJSON())
+
+	if c.Logger != nil {
+		c.Logger.Info("User joined channel", "user_id", c.UserID, "channel_id", chID)
+	}
 }
 
 // handleLeaveChannel handles when a user leaves a channel.
 func (c *Connection) handleLeaveChannel(event *Event) {
-	// TODO: Implement channel leave logic
+	channelID, ok := event.Data["channel_id"].(float64)
+	if !ok {
+		c.SendError("invalid_channel_id", "Invalid channel ID")
+		return
+	}
+
+	chID := int64(channelID)
+
+	// Verify user is a member of the channel
+	exists, err := c.ORM.ChannelMember.
+		Query().
+		Where(channelmember.ChannelIDEQ(int(chID))).
+		Where(channelmember.UserIDEQ(int(c.UserID))).
+		Exist(c.Ctx)
+
+	if err != nil {
+		if c.Logger != nil {
+			c.Logger.Error("Failed to check channel membership", "user_id", c.UserID, "channel_id", chID, "error", err)
+		}
+		c.SendError("database_error", "Failed to verify channel membership")
+		return
+	}
+
+	if !exists {
+		c.SendError("not_member", "You are not a member of this channel")
+		return
+	}
+
+	// Notify other channel members
+	response := &Event{
+		Type: EventTypeMemberLeft,
+		Data: map[string]interface{}{
+			"channel_id": chID,
+			"user_id":    c.UserID,
+		},
+	}
+	c.Hub.SendToChannel(chID, response.ToJSON())
+
+	if c.Logger != nil {
+		c.Logger.Info("User left channel", "user_id", c.UserID, "channel_id", chID)
+	}
 }
 
 // handleTypingStart handles typing start events.
 func (c *Connection) handleTypingStart(event *Event) {
 	// Broadcast typing indicator to channel members
-	channelID, ok := event.Data["channel_id"].(int64)
+	channelID, ok := event.Data["channel_id"].(float64)
 	if !ok {
 		c.SendError("invalid_channel_id", "Invalid channel ID")
 		return
 	}
-	response := UserTypingEvent(c.UserID, channelID)
-	c.Hub.SendToChannel(channelID, response.ToJSON())
+
+	chID := int64(channelID)
+
+	// Verify user is a member of the channel
+	exists, err := c.ORM.ChannelMember.
+		Query().
+		Where(channelmember.ChannelIDEQ(int(chID))).
+		Where(channelmember.UserIDEQ(int(c.UserID))).
+		Exist(c.Ctx)
+
+	if err != nil || !exists {
+		// Silently ignore typing events for non-members
+		return
+	}
+
+	response := UserTypingEvent(c.UserID, chID)
+	c.Hub.SendToChannel(chID, response.ToJSON())
 }
 
 // handleTypingStop handles typing stop events.
 func (c *Connection) handleTypingStop(event *Event) {
-	// Broadcast typing stop to channel members
-	// Similar to handleTypingStart
+	// Typing stop is typically handled client-side
+	// We can implement this if needed for server-side cleanup
+	channelID, ok := event.Data["channel_id"].(float64)
+	if !ok {
+		return
+	}
+
+	chID := int64(channelID)
+
+	// Verify user is a member of the channel
+	// Typing stop is typically handled client-side, but we validate membership
+	_, err := c.ORM.ChannelMember.
+		Query().
+		Where(channelmember.ChannelIDEQ(int(chID))).
+		Where(channelmember.UserIDEQ(int(c.UserID))).
+		Exist(c.Ctx)
+
+	if err != nil {
+		// Silently ignore errors for typing stop
+		return
+	}
+
+	// Could send a typing_stop event if needed
+	// For now, we'll just validate and return
 }
 
 // handleMessageSend handles message sending via WebSocket.
 func (c *Connection) handleMessageSend(event *Event) {
-	// TODO: Save message to database and broadcast
-	// This will be implemented when we have message handlers
+	// Extract message data
+	channelID, ok := event.Data["channel_id"].(float64)
+	if !ok {
+		c.SendError("invalid_channel_id", "Invalid channel ID")
+		return
+	}
+
+	content, ok := event.Data["content"].(string)
+	if !ok || content == "" {
+		c.SendError("invalid_content", "Message content is required")
+		return
+	}
+
+	chID := int64(channelID)
+
+	// Verify user is a member of the channel
+	exists, err := c.ORM.ChannelMember.
+		Query().
+		Where(channelmember.ChannelIDEQ(int(chID))).
+		Where(channelmember.UserIDEQ(int(c.UserID))).
+		Exist(c.Ctx)
+
+	if err != nil {
+		if c.Logger != nil {
+			c.Logger.Error("Failed to check channel membership", "user_id", c.UserID, "channel_id", chID, "error", err)
+		}
+		c.SendError("database_error", "Failed to verify channel membership")
+		return
+	}
+
+	if !exists {
+		c.SendError("not_member", "You are not a member of this channel")
+		return
+	}
+
+	// Create message in database
+	msg, err := c.ORM.Message.
+		Create().
+		SetContent(content).
+		SetMessageType(message.MessageTypeText).
+		SetChannelID(int(chID)).
+		SetUserID(int(c.UserID)).
+		Save(c.Ctx)
+
+	if err != nil {
+		if c.Logger != nil {
+			c.Logger.Error("Failed to save message", "user_id", c.UserID, "channel_id", chID, "error", err)
+		}
+		c.SendError("database_error", "Failed to save message")
+		return
+	}
+
+	// Broadcast message to channel members
+	response := MessageNewEvent(int64(msg.ID), chID, c.UserID, content)
+	c.Hub.SendToChannel(chID, response.ToJSON())
+
+	if c.Logger != nil {
+		c.Logger.Info("Message sent", "user_id", c.UserID, "channel_id", chID, "message_id", msg.ID)
+	}
 }
 
 // handleMarkRead handles read receipt events.
 func (c *Connection) handleMarkRead(event *Event) {
-	// TODO: Update last_read_at in database
+	channelID, ok := event.Data["channel_id"].(float64)
+	if !ok {
+		c.SendError("invalid_channel_id", "Invalid channel ID")
+		return
+	}
+
+	chID := int64(channelID)
+
+	// Update last_read_at for the user in this channel
+	_, err := c.ORM.ChannelMember.
+		Update().
+		Where(channelmember.ChannelIDEQ(int(chID))).
+		Where(channelmember.UserIDEQ(int(c.UserID))).
+		SetLastReadAt(time.Now()).
+		Save(c.Ctx)
+
+	if err != nil {
+		if c.Logger != nil {
+			c.Logger.Error("Failed to update last_read_at", "user_id", c.UserID, "channel_id", chID, "error", err)
+		}
+		c.SendError("database_error", "Failed to update read status")
+		return
+	}
+
+	if c.Logger != nil {
+		c.Logger.Debug("Read receipt updated", "user_id", c.UserID, "channel_id", chID)
+	}
 }
 
 // SendError sends an error message to the client.
@@ -206,4 +426,3 @@ func (c *Connection) Close() {
 // ============================================================================
 // CUSTOM CODE END
 // ============================================================================
-

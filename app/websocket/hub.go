@@ -10,9 +10,11 @@ package websocket
 // ============================================================================
 
 import (
+	"context"
 	"sync"
 
 	"github.com/mikestefanello/pagoda/ent"
+	"github.com/mikestefanello/pagoda/ent/channelmember"
 )
 
 // Hub maintains the set of active connections and broadcasts messages to them.
@@ -33,7 +35,7 @@ type Hub struct {
 	mu sync.RWMutex
 
 	// ORM client for database operations
-	orm *ent.Client
+	ORM *ent.Client
 }
 
 // NewHub creates a new Hub instance.
@@ -43,7 +45,7 @@ func NewHub(orm *ent.Client) *Hub {
 		broadcast:   make(chan []byte, 256),
 		register:    make(chan *Connection),
 		unregister:  make(chan *Connection),
-		orm:         orm,
+		ORM:         orm,
 	}
 }
 
@@ -105,20 +107,47 @@ func (h *Hub) SendToUser(userID int64, message []byte) {
 
 // SendToChannel sends a message to all users in a channel.
 func (h *Hub) SendToChannel(channelID int64, message []byte) {
-	// TODO: Get channel members from database and send to each
-	// This will be implemented when we have channel member queries
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+	// Get channel members from database
+	members, err := h.ORM.ChannelMember.
+		Query().
+		Where(channelmember.ChannelIDEQ(int(channelID))).
+		All(context.Background())
 
-	// For now, broadcast to all (will be optimized later)
-	for _, conn := range h.connections {
-		select {
-		case conn.Send <- message:
-		default:
-			close(conn.Send)
-			delete(h.connections, conn.UserID)
+	if err != nil {
+		// If we can't get members, fall back to broadcasting to all
+		// This is a safety fallback, but shouldn't happen in normal operation
+		h.mu.RLock()
+		for _, conn := range h.connections {
+			select {
+			case conn.Send <- message:
+			default:
+				close(conn.Send)
+				delete(h.connections, conn.UserID)
+			}
+		}
+		h.mu.RUnlock()
+		return
+	}
+
+	// Build set of user IDs that are members
+	memberUserIDs := make(map[int64]bool)
+	for _, member := range members {
+		memberUserIDs[int64(member.UserID)] = true
+	}
+
+	// Send message only to channel members who are online
+	h.mu.RLock()
+	for userID, conn := range h.connections {
+		if memberUserIDs[userID] {
+			select {
+			case conn.Send <- message:
+			default:
+				close(conn.Send)
+				delete(h.connections, userID)
+			}
 		}
 	}
+	h.mu.RUnlock()
 }
 
 // Register registers a new connection.

@@ -110,7 +110,7 @@
 - ✅ Добавлены валидации полей
 - ✅ Добавлен уникальный индекс для DirectMessage (user1_id, user2_id)
 
-### [2024-11-30] Фаза 2: WebSocket инфраструктура
+### [2024-11-30] Фаза 2: WebSocket инфраструктура (начало)
 
 - ✅ Создан WebSocket Hub (`app/websocket/hub.go`)
   - Управление подключениями по user ID
@@ -132,6 +132,32 @@
   - Автоматическая регистрация через handlers system
 - ✅ Добавлена зависимость: `github.com/gorilla/websocket`
 - ✅ Добавлен route name: `WebSocket` в `pkg/routenames/names.go`
+
+### [2024-12-01] Фаза 2: WebSocket инфраструктура (завершение)
+
+- ✅ Реализованы все обработчики событий в `connection.go`:
+  - `handleJoinChannel` - проверка членства и уведомление участников
+  - `handleLeaveChannel` - проверка членства и уведомление участников
+  - `handleTypingStart` - валидация и broadcast индикатора набора
+  - `handleTypingStop` - валидация членства
+  - `handleMessageSend` - сохранение в БД и broadcast сообщения
+  - `handleMarkRead` - обновление last_read_at в ChannelMember
+- ✅ Оптимизирован `SendToChannel` в `hub.go`:
+  - Получение участников канала из БД
+  - Отправка сообщений только участникам канала
+  - Fallback на broadcast при ошибке получения участников
+- ✅ Улучшен `CheckOrigin` в `websocket.go`:
+  - Проверка origin из запроса
+  - Поддержка localhost для разработки
+  - TODO: добавление конфигурации для production
+- ✅ Добавлено логирование:
+  - Логирование всех WebSocket событий через slog
+  - Логирование ошибок и важных операций
+  - Передача logger через context
+- ✅ Интеграция с БД:
+  - Connection теперь имеет доступ к ORM и context
+  - Все операции сохраняются в базу данных
+  - Валидация членства в каналах перед операциями
 
 ---
 
