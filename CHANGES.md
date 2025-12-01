@@ -133,6 +133,38 @@
 - ✅ Добавлена зависимость: `github.com/gorilla/websocket`
 - ✅ Добавлен route name: `WebSocket` в `pkg/routenames/names.go`
 
+### [2024-12-01] Фаза 4: Обработчики и API (базовая версия)
+
+- ✅ Создан основной handler (`app/handlers/messenger.go`)
+  - Все основные endpoints для workspace, channel, message, DM, reactions, attachments
+  - Интеграция с Ent ORM
+  - Обработка ошибок
+- ✅ Созданы middleware (`app/middleware/`):
+  - `workspace.go` - LoadWorkspace, RequireWorkspaceMember
+  - `channel.go` - LoadChannel, RequireChannelMember
+- ✅ Добавлены route names (`app/routenames/names.go`)
+  - Все route names для messenger endpoints
+- ✅ Интеграция middleware в routes
+  - Все защищенные routes проверяют членство
+  - Workspace и Channel загружаются в контекст
+
+### [2024-12-01] Фаза 3: Базовый UI и навигация
+
+- ✅ Создан Messenger layout (`app/ui/layouts/messenger.go`)
+  - Трехпанельный layout (sidebar, content, right panel)
+  - Интеграция с HTMX и Alpine.js
+- ✅ Созданы UI компоненты (`app/ui/components/messenger/`):
+  - `sidebar.go` - боковая панель с workspace, channels, DMs
+  - `channel_list.go` - список каналов
+  - `message_list.go` - список сообщений с реакциями
+  - `message_input.go` - форма ввода сообщения
+  - `user_avatar.go` - аватар пользователя с инициалами
+  - `typing_indicator.go` - индикатор набора текста
+- ✅ Созданы страницы (`app/ui/pages/messenger/`):
+  - `workspace.go` - главная страница workspace
+  - `channel.go` - страница канала
+  - `direct_message.go` - страница прямого сообщения
+
 ### [2024-12-01] Фаза 2: WebSocket инфраструктура (завершение)
 
 - ✅ Реализованы все обработчики событий в `connection.go`:
