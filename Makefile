@@ -57,12 +57,12 @@ admin: ## Create a new admin user (ie, make admin email=myemail@web.com)
 
 .PHONY: run
 run: ## Run the application
-	clear
+	@clear || true
 	go run cmd/web/main.go
 
 .PHONY: watch
 watch: ## Run the application and watch for changes with air to automatically rebuild
-	clear
+	@clear || true
 	air
 
 .PHONY: test

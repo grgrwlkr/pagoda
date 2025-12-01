@@ -4,7 +4,7 @@ tmp_dir = "tmp"
 
 [build]
   args_bin = []
-  bin = "./tmp/main"
+  entrypoint = ["./tmp/main"]
   cmd = "make build"
   delay = 1000
   exclude_dir = ["assets", "tmp", "vendor", "testdata", "uploads", "dbs", "public"]
@@ -22,7 +22,7 @@ tmp_dir = "tmp"
   poll_interval = 0
   post_cmd = []
   pre_cmd = []
-  rerun = false
+  rerun = true
   rerun_delay = 500
   send_interrupt = false
   stop_on_error = true
