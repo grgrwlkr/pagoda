@@ -2,6 +2,7 @@ package layouts
 
 import (
 	. "github.com/mikestefanello/pagoda/app/ui/components/messenger"
+	"github.com/mikestefanello/pagoda/pkg/context"
 	"github.com/mikestefanello/pagoda/pkg/ui"
 	. "github.com/mikestefanello/pagoda/pkg/ui/components"
 	. "maragu.dev/gomponents"
@@ -10,6 +11,14 @@ import (
 
 // Messenger creates a three-panel layout for the messenger interface
 func Messenger(r *ui.Request, content Node) Node {
+	// Get sidebar data from context
+	var sidebarData SidebarData
+	if data := r.Context.Get(context.MessengerSidebarKey); data != nil {
+		if sd, ok := data.(SidebarData); ok {
+			sidebarData = sd
+		}
+	}
+
 	return Doctype(
 		HTML(
 			Lang("en"),
@@ -24,7 +33,7 @@ func Messenger(r *ui.Request, content Node) Node {
 				Div(
 					Class("flex h-full"),
 					// Left sidebar - Workspaces, Channels, DMs
-					Sidebar(r),
+					Sidebar(r, sidebarData),
 					// Center panel - Messages
 					Div(
 						Class("flex-1 flex flex-col"),

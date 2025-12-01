@@ -30,7 +30,9 @@ func Workspace(ctx echo.Context) error {
 				Button(
 					Class("btn btn-primary"),
 					Text("Create Channel"),
-					// TODO: Add click handler to open create channel modal
+					Attr("hx-get", r.Path("messenger.channel.create.form")),
+					Attr("hx-target", "body"),
+					Attr("hx-swap", "beforeend"),
 				),
 			),
 		),

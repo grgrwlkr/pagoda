@@ -11,10 +11,12 @@ package websocket
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 
 	"github.com/mikestefanello/pagoda/ent"
 	"github.com/mikestefanello/pagoda/ent/channelmember"
+	"github.com/mikestefanello/pagoda/ent/workspacemember"
 )
 
 // Hub maintains the set of active connections and broadcasts messages to them.
@@ -114,6 +116,51 @@ func (h *Hub) SendToUser(userID int64, message []byte) {
 		default:
 			close(conn.Send)
 			delete(h.connections, userID)
+		}
+	}
+}
+
+// SendToWorkspace sends a message to all users in a workspace.
+func (h *Hub) SendToWorkspace(ctx context.Context, workspaceID int64, message []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	// Get workspace members from the database
+	members, err := h.ORM.WorkspaceMember.
+		Query().
+		Where(workspacemember.WorkspaceIDEQ(int(workspaceID))).
+		WithUser().
+		All(ctx)
+
+	if err != nil {
+		slog.Error("failed to get workspace members for SendToWorkspace", "workspace_id", workspaceID, "error", err)
+		// Fallback: broadcast to all if we can't get specific members
+		for _, conn := range h.connections {
+			select {
+			case conn.Send <- message:
+			default:
+				close(conn.Send)
+				delete(h.connections, conn.UserID)
+			}
+		}
+		return
+	}
+
+	// Build set of user IDs that are members
+	memberUserIDs := make(map[int64]bool)
+	for _, member := range members {
+		memberUserIDs[int64(member.UserID)] = true
+	}
+
+	// Send message only to workspace members who are online
+	for userID, conn := range h.connections {
+		if memberUserIDs[userID] {
+			select {
+			case conn.Send <- message:
+			default:
+				close(conn.Send)
+				delete(h.connections, userID)
+			}
 		}
 	}
 }

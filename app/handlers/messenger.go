@@ -21,6 +21,7 @@ import (
 	"github.com/labstack/echo/v4"
 	messengerMiddleware "github.com/mikestefanello/pagoda/app/middleware"
 	"github.com/mikestefanello/pagoda/app/routenames"
+	messengerComponents "github.com/mikestefanello/pagoda/app/ui/components/messenger"
 	messengerPages "github.com/mikestefanello/pagoda/app/ui/pages/messenger"
 	ws "github.com/mikestefanello/pagoda/app/websocket"
 	"github.com/mikestefanello/pagoda/ent"
@@ -34,6 +35,7 @@ import (
 	"github.com/mikestefanello/pagoda/ent/workspacemember"
 	"github.com/mikestefanello/pagoda/pkg/context"
 	"github.com/mikestefanello/pagoda/pkg/handlers"
+	"github.com/mikestefanello/pagoda/pkg/log"
 	"github.com/mikestefanello/pagoda/pkg/middleware"
 	"github.com/mikestefanello/pagoda/pkg/pager"
 	"github.com/mikestefanello/pagoda/pkg/services"
@@ -92,6 +94,102 @@ func (h *Messenger) requireWorkspaceOwner(ctx echo.Context, workspaceID, userID 
 	}
 
 	return nil
+}
+
+// getSidebarData loads sidebar data for a workspace
+func (h *Messenger) getSidebarData(ctx echo.Context, workspaceID int, userID int, activeChannelID *int, activeDMID *int) (messengerComponents.SidebarData, error) {
+	// Get workspace
+	ws, err := h.orm.Workspace.Get(ctx.Request().Context(), workspaceID)
+	if err != nil {
+		return messengerComponents.SidebarData{}, err
+	}
+
+	// Get channels where user is a member
+	channels, err := h.orm.ChannelMember.
+		Query().
+		Where(channelmember.UserIDEQ(userID)).
+		QueryChannel().
+		Where(channel.WorkspaceIDEQ(workspaceID)).
+		All(ctx.Request().Context())
+
+	if err != nil {
+		return messengerComponents.SidebarData{}, err
+	}
+
+	channelData := make([]messengerComponents.ChannelData, len(channels))
+	for i, ch := range channels {
+		isActive := activeChannelID != nil && ch.ID == *activeChannelID
+		channelData[i] = messengerComponents.ChannelData{
+			ID:       int64(ch.ID),
+			Slug:     ch.Slug,
+			Name:     ch.Name,
+			IsActive: isActive,
+		}
+	}
+
+	// Get direct messages
+	dms, err := h.orm.DirectMessage.
+		Query().
+		Where(
+			directmessage.Or(
+				directmessage.User1IDEQ(userID),
+				directmessage.User2IDEQ(userID),
+			),
+		).
+		Order(ent.Desc(directmessage.FieldLastMessageAt)).
+		All(ctx.Request().Context())
+
+	if err != nil {
+		return messengerComponents.SidebarData{}, err
+	}
+
+	dmData := make([]messengerComponents.DMData, 0, len(dms))
+	for _, dm := range dms {
+		var otherUserID int
+		var otherUser *ent.User
+		if dm.User1ID == userID {
+			otherUserID = dm.User2ID
+		} else {
+			otherUserID = dm.User1ID
+		}
+
+		otherUser, err = h.orm.User.Get(ctx.Request().Context(), otherUserID)
+		if err != nil {
+			continue // Skip if user not found
+		}
+
+		var isActive bool
+		if activeDMID != nil {
+			isActive = int64(dm.ID) == int64(*activeDMID)
+		}
+		dmData = append(dmData, messengerComponents.DMData{
+			ID:       int64(dm.ID),
+			UserID:   int64(otherUserID),
+			UserName: otherUser.Name,
+			IsActive: isActive,
+		})
+	}
+
+	var activeChID *int64
+	if activeChannelID != nil {
+		chID := int64(*activeChannelID)
+		activeChID = &chID
+	}
+
+	var activeDMID64 *int64
+	if activeDMID != nil {
+		dmID := int64(*activeDMID)
+		activeDMID64 = &dmID
+	}
+
+	return messengerComponents.SidebarData{
+		WorkspaceID:     int64(workspaceID),
+		WorkspaceName:   ws.Name,
+		Channels:        channelData,
+		DirectMessages:  dmData,
+		ActiveChannelID: activeChID,
+		ActiveDMID:      activeDMID64,
+	}, nil
 }
 
 // Messenger handles all messenger-related routes
@@ -330,10 +428,14 @@ func (h *Messenger) WorkspaceUpdate(ctx echo.Context) error {
 
 	// Send WebSocket event
 	if h.hub != nil {
-		event := ws.ChannelUpdatedEvent(int64(id))
-		// Broadcast to all workspace members
-		// TODO: Implement SendToWorkspace method
-		h.hub.Broadcast(event.ToJSON())
+		event := &ws.Event{
+			Type: ws.EventTypeChannelUpdated,
+			Data: map[string]interface{}{
+				"workspace_id": int64(id),
+			},
+		}
+		// Send to all workspace members
+		h.hub.SendToWorkspace(ctx.Request().Context(), int64(id), event.ToJSON())
 	}
 
 	return ctx.JSON(http.StatusOK, workspaceEntity)
@@ -529,8 +631,83 @@ func (h *Messenger) ChannelView(ctx echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "channel not found")
 	}
 
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Get sidebar data
+	activeChannelID := &id
+	sidebarData, err := h.getSidebarData(ctx, ch.WorkspaceID, int(user.ID), activeChannelID, nil)
+	if err != nil {
+		return fail(err, "failed to load sidebar data")
+	}
+
+	// Get messages (last 50)
+	messages, err := h.orm.Message.
+		Query().
+		Where(message.ChannelIDEQ(id)).
+		Order(ent.Desc(message.FieldCreatedAt)).
+		Limit(50).
+		WithUser().
+		All(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to load messages")
+	}
+
+	// Convert to MessageData
+	messageData := make([]messengerComponents.MessageData, len(messages))
+	for i, msg := range messages {
+		// Get reactions
+		reactions, err := h.orm.Reaction.
+			Query().
+			Where(reaction.MessageIDEQ(msg.ID)).
+			WithUser().
+			All(ctx.Request().Context())
+
+		if err != nil {
+			reactions = []*ent.Reaction{} // Continue with empty reactions
+		}
+
+		// Group reactions by emoji
+		reactionMap := make(map[string]*messengerComponents.ReactionData)
+		for _, r := range reactions {
+			if existing, ok := reactionMap[r.Emoji]; ok {
+				existing.Count++
+				existing.UserIDs = append(existing.UserIDs, int64(r.UserID))
+			} else {
+				reactionMap[r.Emoji] = &messengerComponents.ReactionData{
+					Emoji:   r.Emoji,
+					Count:   1,
+					UserIDs: []int64{int64(r.UserID)},
+				}
+			}
+		}
+
+		reactionData := make([]messengerComponents.ReactionData, 0, len(reactionMap))
+		for _, r := range reactionMap {
+			reactionData = append(reactionData, *r)
+		}
+
+		messageData[i] = messengerComponents.MessageData{
+			ID:        int64(msg.ID),
+			Content:   msg.Content,
+			UserID:    int64(msg.UserID),
+			UserName:  msg.Edges.User.Name,
+			CreatedAt: msg.CreatedAt,
+			EditedAt:  msg.EditedAt,
+			Reactions: reactionData,
+		}
+	}
+
+	// Reverse to show oldest first
+	for i, j := 0, len(messageData)-1; i < j; i, j = i+1, j-1 {
+		messageData[i], messageData[j] = messageData[j], messageData[i]
+	}
+
+	// Store sidebar data in context
+	ctx.Set(context.MessengerSidebarKey, sidebarData)
+
 	// Channel membership is checked by RequireChannelMember middleware
-	return messengerPages.Channel(ctx, int64(ch.ID), ch.Name)
+	return messengerPages.Channel(ctx, int64(ch.ID), ch.Name, messageData)
 }
 
 // ChannelCreate creates a new channel
@@ -1146,7 +1323,7 @@ func (h *Messenger) MessageReply(ctx echo.Context) error {
 
 	if err != nil {
 		// Log but don't fail
-		// TODO: Add logging
+		log.Ctx(ctx).Warn("failed to update reply count", "message_id", id, "error", err)
 	}
 
 	// Send WebSocket event
@@ -1398,7 +1575,7 @@ func (h *Messenger) DMMessageCreate(ctx echo.Context) error {
 
 	if err != nil {
 		// Log but don't fail
-		// TODO: Add logging
+		log.Ctx(ctx).Warn("failed to update DM last_message_at", "dm_id", id, "error", err)
 	}
 
 	// Send WebSocket event to other user
@@ -1671,7 +1848,7 @@ func (h *Messenger) AttachmentDelete(ctx echo.Context) error {
 	// Delete file from filesystem
 	if err := h.files.Remove(attachment.Filepath); err != nil {
 		// Log but don't fail - file might already be deleted
-		// TODO: Add logging
+		log.Ctx(ctx).Warn("failed to delete attachment file", "attachment_id", id, "filepath", attachment.Filepath, "error", err)
 	}
 
 	// Delete attachment record

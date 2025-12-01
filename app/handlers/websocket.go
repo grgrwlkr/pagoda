@@ -16,6 +16,7 @@ import (
 	gorillaWS "github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
 	ws "github.com/mikestefanello/pagoda/app/websocket"
+	"github.com/mikestefanello/pagoda/config"
 	"github.com/mikestefanello/pagoda/ent"
 	"github.com/mikestefanello/pagoda/pkg/context"
 	"github.com/mikestefanello/pagoda/pkg/handlers"
@@ -27,7 +28,8 @@ import (
 
 // WebSocket handles WebSocket connections.
 type WebSocket struct {
-	hub *ws.Hub
+	hub    *ws.Hub
+	config *config.Config
 }
 
 func init() {
@@ -38,6 +40,7 @@ func init() {
 func (h *WebSocket) Init(c *services.Container) error {
 	// Create WebSocket hub
 	h.hub = ws.NewHub(c.ORM)
+	h.config = c.Config
 
 	// Set global hub for access from other handlers
 	ws.SetHub(h.hub)
@@ -92,8 +95,23 @@ func (h *WebSocket) HandleWebSocket(ctx echo.Context) error {
 				return false
 			}
 
-			// Allow same origin and localhost for development
-			// TODO: Add config-based origin checking for production
+			// Check allowed origins from config
+			allowedOrigins := h.config.App.WebSocket.AllowedOrigins
+			if len(allowedOrigins) > 0 {
+				for _, allowed := range allowedOrigins {
+					allowedURL, err := url.Parse(allowed)
+					if err != nil {
+						continue
+					}
+					if host == allowedURL.Host || host == appHost {
+						return true
+					}
+				}
+				// Also allow same origin
+				return host == appHost
+			}
+
+			// Fallback: Allow same origin and localhost for development (if no config)
 			return host == appHost ||
 				host == "localhost:8000" ||
 				host == "127.0.0.1:8000" ||

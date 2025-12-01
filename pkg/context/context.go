@@ -40,6 +40,9 @@ const (
 
 	// AdminEntityIDKey is the key used to store the ID of the entity being operated on in the admin panel.
 	AdminEntityIDKey = "admin:entity_id"
+
+	// MessengerSidebarKey is the key used to store sidebar data in context.
+	MessengerSidebarKey = "messenger:sidebar"
 )
 
 // IsCanceledError determines if an error is due to a context cancellation.

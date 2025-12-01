@@ -23,6 +23,10 @@ app:
       expiration: "60m"
       length: 64
   emailVerificationTokenExpiration: "12h"
+  websocket:
+    # Allowed origins for WebSocket connections (comma-separated)
+    # Empty list means allow all origins (not recommended for production)
+    allowedOrigins: ["http://localhost:8000", "http://127.0.0.1:8000"]
 
 cache:
   capacity: 100000

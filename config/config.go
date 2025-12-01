@@ -78,6 +78,9 @@ type (
 			Length     int
 		}
 		EmailVerificationTokenExpiration time.Duration
+		WebSocket                        struct {
+			AllowedOrigins []string
+		}
 	}
 
 	// CacheConfig stores the cache configuration.
