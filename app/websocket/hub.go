@@ -38,6 +38,19 @@ type Hub struct {
 	ORM *ent.Client
 }
 
+// Global hub instance (set by WebSocket handler)
+var globalHub *Hub
+
+// GetHub returns the global hub instance
+func GetHub() *Hub {
+	return globalHub
+}
+
+// SetHub sets the global hub instance
+func SetHub(hub *Hub) {
+	globalHub = hub
+}
+
 // NewHub creates a new Hub instance.
 func NewHub(orm *ent.Client) *Hub {
 	return &Hub{

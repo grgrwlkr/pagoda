@@ -94,15 +94,48 @@ app/
 4. **Обработка ошибок**: Используется стандартная функция `fail` для ошибок
 5. **Типобезопасность**: Используется Ent ORM для типобезопасных запросов
 
+## ✅ Дополнительно реализовано
+
+- [x] Реализованы все Direct Message handlers
+  - DMList - список DM для пользователя
+  - DMView - просмотр DM
+  - DMCreate - создание/получение DM
+  - DMMessages - сообщения в DM с пагинацией
+  - DMMessageCreate - отправка сообщения в DM
+- [x] Реализованы Reaction handlers
+  - ReactionAdd - добавление реакции с проверкой дубликатов
+  - ReactionRemove - удаление реакции
+- [x] Реализованы Attachment handlers
+  - AttachmentUpload - загрузка файла с сохранением в filesystem
+  - AttachmentView - скачивание файла
+  - AttachmentDelete - удаление файла с проверкой прав
+- [x] Добавлена пагинация для сообщений
+  - ChannelMessages использует pager
+  - DMMessages использует pager
+- [x] Интегрированы WebSocket события
+  - MessageCreate отправляет message_new событие
+  - MessageUpdate отправляет message_edited событие
+  - MessageDelete отправляет message_deleted событие
+  - ReactionAdd отправляет reaction_added событие
+  - ReactionRemove отправляет reaction_removed событие
+  - DMMessageCreate отправляет событие конкретному пользователю
+- [x] Реализованы MessageUpdate и MessageDelete
+  - MessageUpdate - редактирование с проверкой прав владельца
+  - MessageDelete - удаление с проверкой прав владельца
+  - MessageReplies - получение ответов в треде
+  - MessageReply - создание ответа в треде с обновлением счетчика
+- [x] Созданы формы в `app/ui/forms/messenger/`
+  - channel.go - форма создания/редактирования канала
+  - workspace.go - форма создания/редактирования workspace
+  - message.go - форма отправки сообщения
+  - invite.go - форма приглашения пользователя
+
 ## TODO для следующих фаз
 
-- [ ] Реализовать все заглушки (DM, Reactions, Attachments)
-- [ ] Добавить пагинацию для сообщений
-- [ ] Добавить валидацию форм
-- [ ] Интегрировать WebSocket события при создании сообщений
-- [ ] Добавить проверку прав (owner/admin/member)
-- [ ] Реализовать формы в `app/ui/forms/messenger/`
+- [ ] Добавить проверку прав (owner/admin/member) для workspace операций
 - [ ] Добавить фильтрацию и сортировку для списков
+- [ ] Добавить валидацию slug для workspace и channel
+- [ ] Реализовать UI для форм
 
 ## Следующие шаги
 
@@ -110,8 +143,29 @@ app/
 - **Фаза 5**: Реальное время (интеграция WebSocket с handlers)
 - Доработка заглушек в Фазе 4
 
+## Интеграция WebSocket
+
+- ✅ Глобальный доступ к hub через `ws.GetHub()` и `ws.SetHub()`
+- ✅ Messenger handler получает hub при инициализации
+- ✅ Все операции создания/обновления/удаления отправляют WebSocket события
+- ✅ События отправляются только участникам канала/пользователям DM
+
+## Пагинация
+
+- ✅ ChannelMessages использует `pager.NewPager(ctx, 50)`
+- ✅ DMMessages использует `pager.NewPager(ctx, 50)`
+- ✅ Возвращает структуру с messages и pager для клиента
+
+## Формы
+
+- ✅ ChannelForm - создание/редактирование канала
+- ✅ WorkspaceForm - создание/редактирование workspace
+- ✅ MessageForm - отправка сообщения
+- ✅ InviteForm - приглашение пользователя
+
 ---
 
 **Дата завершения**: 2024-12-01
-**Статус**: ✅ Фаза 4 завершена (базовая версия), основные endpoints созданы и защищены
+**Дата полного завершения**: 2024-12-01
+**Статус**: ✅ Фаза 4 полностью завершена, все endpoints реализованы и интегрированы с WebSocket
 

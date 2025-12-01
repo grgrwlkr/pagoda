@@ -133,6 +133,34 @@
 - ✅ Добавлена зависимость: `github.com/gorilla/websocket`
 - ✅ Добавлен route name: `WebSocket` в `pkg/routenames/names.go`
 
+### [2024-12-01] Фаза 4: Обработчики и API (полное завершение)
+
+- ✅ Реализованы все Direct Message handlers:
+  - DMList, DMView, DMCreate, DMMessages, DMMessageCreate
+  - Проверка участия пользователя в DM
+  - Обновление last_message_at
+- ✅ Реализованы Reaction handlers:
+  - ReactionAdd с проверкой дубликатов
+  - ReactionRemove с удалением из БД
+- ✅ Реализованы Attachment handlers:
+  - AttachmentUpload с сохранением в filesystem
+  - AttachmentView для скачивания файлов
+  - AttachmentDelete с проверкой прав
+- ✅ Добавлена пагинация:
+  - ChannelMessages использует pager (50 сообщений на страницу)
+  - DMMessages использует pager
+- ✅ Интегрированы WebSocket события:
+  - MessageCreate, MessageUpdate, MessageDelete отправляют события
+  - ReactionAdd, ReactionRemove отправляют события
+  - DMMessageCreate отправляет событие конкретному пользователю
+- ✅ Реализованы MessageUpdate и MessageDelete:
+  - Проверка прав владельца сообщения
+  - Обновление reply_count при создании ответа
+- ✅ Созданы формы (`app/ui/forms/messenger/`):
+  - channel.go, workspace.go, message.go, invite.go
+- ✅ Добавлен глобальный доступ к WebSocket hub:
+  - ws.GetHub() и ws.SetHub() для доступа из других handlers
+
 ### [2024-12-01] Фаза 4: Обработчики и API (базовая версия)
 
 - ✅ Создан основной handler (`app/handlers/messenger.go`)

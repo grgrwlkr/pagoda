@@ -39,6 +39,9 @@ func (h *WebSocket) Init(c *services.Container) error {
 	// Create WebSocket hub
 	h.hub = ws.NewHub(c.ORM)
 
+	// Set global hub for access from other handlers
+	ws.SetHub(h.hub)
+
 	// Start the hub in a goroutine
 	go h.hub.Run()
 

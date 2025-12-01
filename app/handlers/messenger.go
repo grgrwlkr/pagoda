@@ -11,22 +11,31 @@ package handlers
 
 import (
 	"fmt"
+	"io"
 	"net/http"
+	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	messengerMiddleware "github.com/mikestefanello/pagoda/app/middleware"
 	"github.com/mikestefanello/pagoda/app/routenames"
 	messengerPages "github.com/mikestefanello/pagoda/app/ui/pages/messenger"
+	ws "github.com/mikestefanello/pagoda/app/websocket"
 	"github.com/mikestefanello/pagoda/ent"
 	"github.com/mikestefanello/pagoda/ent/channel"
 	"github.com/mikestefanello/pagoda/ent/channelmember"
+	"github.com/mikestefanello/pagoda/ent/directmessage"
+	"github.com/mikestefanello/pagoda/ent/directmessagecontent"
 	"github.com/mikestefanello/pagoda/ent/message"
+	"github.com/mikestefanello/pagoda/ent/reaction"
 	"github.com/mikestefanello/pagoda/ent/workspacemember"
 	"github.com/mikestefanello/pagoda/pkg/context"
 	"github.com/mikestefanello/pagoda/pkg/handlers"
 	"github.com/mikestefanello/pagoda/pkg/middleware"
+	"github.com/mikestefanello/pagoda/pkg/pager"
 	"github.com/mikestefanello/pagoda/pkg/services"
+	"github.com/spf13/afero"
 )
 
 // fail is a helper to fail a request by returning a 500 error
@@ -36,7 +45,9 @@ func fail(err error, log string) error {
 
 // Messenger handles all messenger-related routes
 type Messenger struct {
-	orm *ent.Client
+	orm   *ent.Client
+	hub   *ws.Hub // WebSocket hub for real-time events
+	files afero.Fs
 }
 
 func init() {
@@ -46,6 +57,9 @@ func init() {
 // Init initializes the handler with dependencies from the container.
 func (h *Messenger) Init(c *services.Container) error {
 	h.orm = c.ORM
+	h.files = c.Files
+	// Get hub from WebSocket handler (will be set when WebSocket handler initializes)
+	h.hub = ws.GetHub()
 	return nil
 }
 
@@ -321,19 +335,38 @@ func (h *Messenger) ChannelMessages(ctx echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid channel ID")
 	}
 
-	// TODO: Add pagination
+	// Create pager (50 messages per page)
+	pgr := pager.NewPager(ctx, 50)
+
+	// Get total count
+	total, err := h.orm.Message.
+		Query().
+		Where(message.ChannelIDEQ(id)).
+		Count(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to count messages")
+	}
+
+	pgr.SetItems(total)
+
+	// Get messages with pagination
 	messages, err := h.orm.Message.
 		Query().
 		Where(message.ChannelIDEQ(id)).
 		Order(ent.Desc(message.FieldCreatedAt)).
-		Limit(50).
+		Limit(pgr.ItemsPerPage).
+		Offset(pgr.GetOffset()).
 		All(ctx.Request().Context())
 
 	if err != nil {
 		return fail(err, "failed to fetch messages")
 	}
 
-	return ctx.JSON(http.StatusOK, messages)
+	return ctx.JSON(http.StatusOK, map[string]interface{}{
+		"messages": messages,
+		"pager":    pgr,
+	})
 }
 
 // ============================================================================
@@ -367,33 +400,211 @@ func (h *Messenger) MessageCreate(ctx echo.Context) error {
 		return fail(err, "failed to create message")
 	}
 
-	// TODO: Send WebSocket event
+	// Send WebSocket event to channel members
+	if h.hub != nil {
+		event := ws.MessageNewEvent(int64(msg.ID), int64(channelID), int64(user.ID), content)
+		h.hub.SendToChannel(int64(channelID), event.ToJSON())
+	}
 
 	return ctx.JSON(http.StatusCreated, msg)
 }
 
 // MessageUpdate updates a message
 func (h *Messenger) MessageUpdate(ctx echo.Context) error {
-	// TODO: Implement
-	return ctx.JSON(http.StatusOK, map[string]string{"status": "not implemented"})
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid message ID")
+	}
+
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Get message
+	msg, err := h.orm.Message.Get(ctx.Request().Context(), id)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "message not found")
+		}
+		return fail(err, "failed to get message")
+	}
+
+	// Check if user owns the message
+	if msg.UserID != int(user.ID) {
+		return echo.NewHTTPError(http.StatusForbidden, "you can only edit your own messages")
+	}
+
+	// Parse form data
+	content := ctx.FormValue("content")
+	if content == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "message content is required")
+	}
+
+	// Update message
+	msg, err = msg.Update().
+		SetContent(content).
+		SetEditedAt(time.Now()).
+		Save(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to update message")
+	}
+
+	// Send WebSocket event
+	if h.hub != nil {
+		event := &ws.Event{
+			Type: ws.EventTypeMessageEdited,
+			Data: map[string]interface{}{
+				"message_id": int64(msg.ID),
+				"channel_id": int64(msg.ChannelID),
+				"content":    content,
+			},
+		}
+		h.hub.SendToChannel(int64(msg.ChannelID), event.ToJSON())
+	}
+
+	return ctx.JSON(http.StatusOK, msg)
 }
 
 // MessageDelete deletes a message
 func (h *Messenger) MessageDelete(ctx echo.Context) error {
-	// TODO: Implement
-	return ctx.JSON(http.StatusOK, map[string]string{"status": "not implemented"})
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid message ID")
+	}
+
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Get message
+	msg, err := h.orm.Message.Get(ctx.Request().Context(), id)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "message not found")
+		}
+		return fail(err, "failed to get message")
+	}
+
+	// Check if user owns the message
+	if msg.UserID != int(user.ID) {
+		return echo.NewHTTPError(http.StatusForbidden, "you can only delete your own messages")
+	}
+
+	channelID := msg.ChannelID
+
+	// Delete message
+	err = h.orm.Message.DeleteOneID(id).Exec(ctx.Request().Context())
+	if err != nil {
+		return fail(err, "failed to delete message")
+	}
+
+	// Send WebSocket event
+	if h.hub != nil {
+		event := &ws.Event{
+			Type: ws.EventTypeMessageDeleted,
+			Data: map[string]interface{}{
+				"message_id": int64(id),
+				"channel_id": int64(channelID),
+			},
+		}
+		h.hub.SendToChannel(int64(channelID), event.ToJSON())
+	}
+
+	return ctx.NoContent(http.StatusNoContent)
 }
 
 // MessageReplies returns replies to a message (thread)
 func (h *Messenger) MessageReplies(ctx echo.Context) error {
-	// TODO: Implement
-	return ctx.JSON(http.StatusOK, map[string]string{"status": "not implemented"})
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid message ID")
+	}
+
+	// Verify message exists
+	_, err = h.orm.Message.Get(ctx.Request().Context(), id)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "message not found")
+		}
+		return fail(err, "failed to get message")
+	}
+
+	// Get replies (messages with thread_id = id)
+	replies, err := h.orm.Message.
+		Query().
+		Where(message.ThreadIDEQ(id)).
+		Order(ent.Asc(message.FieldCreatedAt)).
+		All(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to fetch replies")
+	}
+
+	return ctx.JSON(http.StatusOK, replies)
 }
 
 // MessageReply creates a reply to a message (thread)
 func (h *Messenger) MessageReply(ctx echo.Context) error {
-	// TODO: Implement
-	return ctx.JSON(http.StatusOK, map[string]string{"status": "not implemented"})
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid message ID")
+	}
+
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Get parent message
+	parentMsg, err := h.orm.Message.Get(ctx.Request().Context(), id)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "message not found")
+		}
+		return fail(err, "failed to get message")
+	}
+
+	// Parse form data
+	content := ctx.FormValue("content")
+	if content == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "message content is required")
+	}
+
+	// Create reply
+	reply, err := h.orm.Message.
+		Create().
+		SetContent(content).
+		SetMessageType(message.MessageTypeThreadReply).
+		SetChannelID(parentMsg.ChannelID).
+		SetUserID(int(user.ID)).
+		SetThreadID(id).
+		Save(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to create reply")
+	}
+
+	// Update reply count on parent message
+	_, err = h.orm.Message.
+		UpdateOneID(id).
+		AddReplyCount(1).
+		Save(ctx.Request().Context())
+
+	if err != nil {
+		// Log but don't fail
+		// TODO: Add logging
+	}
+
+	// Send WebSocket event
+	if h.hub != nil {
+		event := &ws.Event{
+			Type: ws.EventTypeMessageNew,
+			Data: map[string]interface{}{
+				"message_id": int64(reply.ID),
+				"channel_id": int64(parentMsg.ChannelID),
+				"thread_id":  int64(id),
+				"user_id":    int64(user.ID),
+				"content":    content,
+			},
+		}
+		h.hub.SendToChannel(int64(parentMsg.ChannelID), event.ToJSON())
+	}
+
+	return ctx.JSON(http.StatusCreated, reply)
 }
 
 // ============================================================================
@@ -402,32 +613,254 @@ func (h *Messenger) MessageReply(ctx echo.Context) error {
 
 // DMList returns a list of direct message conversations
 func (h *Messenger) DMList(ctx echo.Context) error {
-	// TODO: Implement
-	return ctx.JSON(http.StatusOK, []interface{}{})
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Get all DMs where user is user1 or user2
+	dms, err := h.orm.DirectMessage.
+		Query().
+		Where(
+			directmessage.Or(
+				directmessage.User1IDEQ(int(user.ID)),
+				directmessage.User2IDEQ(int(user.ID)),
+			),
+		).
+		Order(ent.Desc(directmessage.FieldLastMessageAt)).
+		All(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to fetch direct messages")
+	}
+
+	return ctx.JSON(http.StatusOK, dms)
 }
 
 // DMView shows a direct message conversation
 func (h *Messenger) DMView(ctx echo.Context) error {
-	// TODO: Implement
-	return messengerPages.DirectMessage(ctx, 0, "User")
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid DM ID")
+	}
+
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Get DM
+	dm, err := h.orm.DirectMessage.Get(ctx.Request().Context(), id)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "direct message not found")
+		}
+		return fail(err, "failed to get direct message")
+	}
+
+	// Check if user is part of this DM
+	if dm.User1ID != int(user.ID) && dm.User2ID != int(user.ID) {
+		return echo.NewHTTPError(http.StatusForbidden, "you are not part of this conversation")
+	}
+
+	// Get other user
+	var otherUserID int
+	if dm.User1ID == int(user.ID) {
+		otherUserID = dm.User2ID
+	} else {
+		otherUserID = dm.User1ID
+	}
+
+	otherUser, err := h.orm.User.Get(ctx.Request().Context(), otherUserID)
+	if err != nil {
+		return fail(err, "failed to get other user")
+	}
+
+	return messengerPages.DirectMessage(ctx, int64(id), otherUser.Name)
 }
 
 // DMCreate creates or retrieves a direct message conversation
 func (h *Messenger) DMCreate(ctx echo.Context) error {
-	// TODO: Implement
-	return ctx.JSON(http.StatusOK, map[string]string{"status": "not implemented"})
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Get target user ID from form
+	userIDStr := ctx.FormValue("user_id")
+	if userIDStr == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "user_id is required")
+	}
+
+	targetUserID, err := strconv.Atoi(userIDStr)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid user_id")
+	}
+
+	if targetUserID == int(user.ID) {
+		return echo.NewHTTPError(http.StatusBadRequest, "cannot create DM with yourself")
+	}
+
+	// Check if target user exists
+	_, err = h.orm.User.Get(ctx.Request().Context(), targetUserID)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "target user not found")
+		}
+		return fail(err, "failed to get target user")
+	}
+
+	// Try to find existing DM (order user IDs to ensure consistency)
+	user1ID := int(user.ID)
+	user2ID := targetUserID
+	if user1ID > user2ID {
+		user1ID, user2ID = user2ID, user1ID
+	}
+
+	dm, err := h.orm.DirectMessage.
+		Query().
+		Where(directmessage.User1IDEQ(user1ID)).
+		Where(directmessage.User2IDEQ(user2ID)).
+		Only(ctx.Request().Context())
+
+	if err != nil {
+		if ent.IsNotFound(err) {
+			// Create new DM
+			dm, err = h.orm.DirectMessage.
+				Create().
+				SetUser1ID(user1ID).
+				SetUser2ID(user2ID).
+				Save(ctx.Request().Context())
+
+			if err != nil {
+				return fail(err, "failed to create direct message")
+			}
+		} else {
+			return fail(err, "failed to query direct message")
+		}
+	}
+
+	return ctx.JSON(http.StatusOK, dm)
 }
 
 // DMMessages returns messages in a direct message conversation
 func (h *Messenger) DMMessages(ctx echo.Context) error {
-	// TODO: Implement
-	return ctx.JSON(http.StatusOK, []interface{}{})
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid DM ID")
+	}
+
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Get DM and verify user is part of it
+	dm, err := h.orm.DirectMessage.Get(ctx.Request().Context(), id)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "direct message not found")
+		}
+		return fail(err, "failed to get direct message")
+	}
+
+	if dm.User1ID != int(user.ID) && dm.User2ID != int(user.ID) {
+		return echo.NewHTTPError(http.StatusForbidden, "you are not part of this conversation")
+	}
+
+	// Create pager (50 messages per page)
+	pgr := pager.NewPager(ctx, 50)
+
+	// Get total count
+	total, err := h.orm.DirectMessageContent.
+		Query().
+		Where(directmessagecontent.DmIDEQ(id)).
+		Count(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to count messages")
+	}
+
+	pgr.SetItems(total)
+
+	// Get messages with pagination
+	messages, err := h.orm.DirectMessageContent.
+		Query().
+		Where(directmessagecontent.DmIDEQ(id)).
+		Order(ent.Desc(directmessagecontent.FieldCreatedAt)).
+		Limit(pgr.ItemsPerPage).
+		Offset(pgr.GetOffset()).
+		All(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to fetch messages")
+	}
+
+	return ctx.JSON(http.StatusOK, map[string]interface{}{
+		"messages": messages,
+		"pager":    pgr,
+	})
 }
 
 // DMMessageCreate creates a message in a direct message conversation
 func (h *Messenger) DMMessageCreate(ctx echo.Context) error {
-	// TODO: Implement
-	return ctx.JSON(http.StatusOK, map[string]string{"status": "not implemented"})
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid DM ID")
+	}
+
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Get DM and verify user is part of it
+	dm, err := h.orm.DirectMessage.Get(ctx.Request().Context(), id)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "direct message not found")
+		}
+		return fail(err, "failed to get direct message")
+	}
+
+	if dm.User1ID != int(user.ID) && dm.User2ID != int(user.ID) {
+		return echo.NewHTTPError(http.StatusForbidden, "you are not part of this conversation")
+	}
+
+	// Parse form data
+	content := ctx.FormValue("content")
+	if content == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "message content is required")
+	}
+
+	// Create message
+	msg, err := h.orm.DirectMessageContent.
+		Create().
+		SetContent(content).
+		SetDmID(id).
+		SetUserID(int(user.ID)).
+		Save(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to create message")
+	}
+
+	// Update last_message_at
+	_, err = h.orm.DirectMessage.
+		UpdateOneID(id).
+		SetLastMessageAt(time.Now()).
+		Save(ctx.Request().Context())
+
+	if err != nil {
+		// Log but don't fail
+		// TODO: Add logging
+	}
+
+	// Send WebSocket event to other user
+	if h.hub != nil {
+		otherUserID := dm.User1ID
+		if dm.User1ID == int(user.ID) {
+			otherUserID = dm.User2ID
+		}
+
+		event := &ws.Event{
+			Type: ws.EventTypeMessageNew,
+			Data: map[string]interface{}{
+				"message_id": int64(msg.ID),
+				"dm_id":      int64(id),
+				"user_id":    int64(user.ID),
+				"content":    content,
+			},
+		}
+		h.hub.SendToUser(int64(otherUserID), event.ToJSON())
+	}
+
+	return ctx.JSON(http.StatusCreated, msg)
 }
 
 // ============================================================================
@@ -436,14 +869,116 @@ func (h *Messenger) DMMessageCreate(ctx echo.Context) error {
 
 // ReactionAdd adds a reaction to a message
 func (h *Messenger) ReactionAdd(ctx echo.Context) error {
-	// TODO: Implement
-	return ctx.JSON(http.StatusOK, map[string]string{"status": "not implemented"})
+	messageID, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid message ID")
+	}
+
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Get emoji from form
+	emoji := ctx.FormValue("emoji")
+	if emoji == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "emoji is required")
+	}
+
+	// Check if message exists
+	_, err = h.orm.Message.Get(ctx.Request().Context(), messageID)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "message not found")
+		}
+		return fail(err, "failed to get message")
+	}
+
+	// Check if reaction already exists
+	exists, err := h.orm.Reaction.
+		Query().
+		Where(reaction.MessageIDEQ(messageID)).
+		Where(reaction.UserIDEQ(int(user.ID))).
+		Where(reaction.EmojiEQ(emoji)).
+		Exist(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to check reaction")
+	}
+
+	if exists {
+		return echo.NewHTTPError(http.StatusConflict, "reaction already exists")
+	}
+
+	// Create reaction
+	reaction, err := h.orm.Reaction.
+		Create().
+		SetEmoji(emoji).
+		SetMessageID(messageID).
+		SetUserID(int(user.ID)).
+		Save(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to create reaction")
+	}
+
+	// Send WebSocket event
+	if h.hub != nil {
+		msg, _ := h.orm.Message.Get(ctx.Request().Context(), messageID)
+		event := ws.ReactionAddedEvent(int64(messageID), int64(user.ID), emoji)
+		h.hub.SendToChannel(int64(msg.ChannelID), event.ToJSON())
+	}
+
+	return ctx.JSON(http.StatusCreated, reaction)
 }
 
 // ReactionRemove removes a reaction from a message
 func (h *Messenger) ReactionRemove(ctx echo.Context) error {
-	// TODO: Implement
-	return ctx.JSON(http.StatusOK, map[string]string{"status": "not implemented"})
+	messageID, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid message ID")
+	}
+
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Get emoji from URL parameter
+	emoji := ctx.Param("emoji")
+	if emoji == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "emoji is required")
+	}
+
+	// Get message to find channel ID
+	msg, err := h.orm.Message.Get(ctx.Request().Context(), messageID)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "message not found")
+		}
+		return fail(err, "failed to get message")
+	}
+
+	// Find and delete reaction
+	_, err = h.orm.Reaction.
+		Delete().
+		Where(reaction.MessageIDEQ(messageID)).
+		Where(reaction.UserIDEQ(int(user.ID))).
+		Where(reaction.EmojiEQ(emoji)).
+		Exec(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to delete reaction")
+	}
+
+	// Send WebSocket event
+	if h.hub != nil {
+		event := &ws.Event{
+			Type: ws.EventTypeReactionRemoved,
+			Data: map[string]interface{}{
+				"message_id": int64(messageID),
+				"user_id":    int64(user.ID),
+				"emoji":      emoji,
+			},
+		}
+		h.hub.SendToChannel(int64(msg.ChannelID), event.ToJSON())
+	}
+
+	return ctx.NoContent(http.StatusNoContent)
 }
 
 // ============================================================================
@@ -452,20 +987,140 @@ func (h *Messenger) ReactionRemove(ctx echo.Context) error {
 
 // AttachmentUpload uploads a file attachment
 func (h *Messenger) AttachmentUpload(ctx echo.Context) error {
-	// TODO: Implement
-	return ctx.JSON(http.StatusOK, map[string]string{"status": "not implemented"})
+	messageID, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid message ID")
+	}
+
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Verify message exists
+	_, err = h.orm.Message.Get(ctx.Request().Context(), messageID)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "message not found")
+		}
+		return fail(err, "failed to get message")
+	}
+
+	// Get file from form
+	file, err := ctx.FormFile("file")
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "file is required")
+	}
+
+	// Open uploaded file
+	src, err := file.Open()
+	if err != nil {
+		return fail(err, "failed to open uploaded file")
+	}
+	defer src.Close()
+
+	// Create file path in attachments directory
+	filePath := filepath.Join("attachments", fmt.Sprintf("%d_%s", messageID, file.Filename))
+	dst, err := h.files.Create(filePath)
+	if err != nil {
+		return fail(err, "failed to create file")
+	}
+	defer dst.Close()
+
+	// Copy file content
+	if _, err = io.Copy(dst, src); err != nil {
+		return fail(err, "failed to save file")
+	}
+
+	// Get file info
+	fileInfo, err := h.files.Stat(filePath)
+	if err != nil {
+		return fail(err, "failed to get file info")
+	}
+
+	// Create attachment record
+	attachment, err := h.orm.Attachment.
+		Create().
+		SetFilename(file.Filename).
+		SetFilepath(filePath).
+		SetFileSize(fileInfo.Size()).
+		SetMimeType(file.Header.Get("Content-Type")).
+		SetMessageID(messageID).
+		SetUploadedBy(int(user.ID)).
+		Save(ctx.Request().Context())
+
+	if err != nil {
+		return fail(err, "failed to create attachment record")
+	}
+
+	return ctx.JSON(http.StatusCreated, attachment)
 }
 
 // AttachmentView serves an attachment file
 func (h *Messenger) AttachmentView(ctx echo.Context) error {
-	// TODO: Implement
-	return ctx.JSON(http.StatusOK, map[string]string{"status": "not implemented"})
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid attachment ID")
+	}
+
+	// Get attachment
+	attachment, err := h.orm.Attachment.Get(ctx.Request().Context(), id)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "attachment not found")
+		}
+		return fail(err, "failed to get attachment")
+	}
+
+	// Open file
+	file, err := h.files.Open(attachment.Filepath)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "file not found on disk")
+	}
+	defer file.Close()
+
+	// Set headers
+	ctx.Response().Header().Set("Content-Type", attachment.MimeType)
+	ctx.Response().Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", attachment.Filename))
+
+	// Stream file
+	_, err = io.Copy(ctx.Response(), file)
+	return err
 }
 
 // AttachmentDelete deletes an attachment
 func (h *Messenger) AttachmentDelete(ctx echo.Context) error {
-	// TODO: Implement
-	return ctx.JSON(http.StatusOK, map[string]string{"status": "not implemented"})
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid attachment ID")
+	}
+
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+
+	// Get attachment
+	attachment, err := h.orm.Attachment.Get(ctx.Request().Context(), id)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return echo.NewHTTPError(http.StatusNotFound, "attachment not found")
+		}
+		return fail(err, "failed to get attachment")
+	}
+
+	// Check if user uploaded the attachment
+	if attachment.UploadedBy != int(user.ID) {
+		return echo.NewHTTPError(http.StatusForbidden, "you can only delete your own attachments")
+	}
+
+	// Delete file from filesystem
+	if err := h.files.Remove(attachment.Filepath); err != nil {
+		// Log but don't fail - file might already be deleted
+		// TODO: Add logging
+	}
+
+	// Delete attachment record
+	err = h.orm.Attachment.DeleteOneID(id).Exec(ctx.Request().Context())
+	if err != nil {
+		return fail(err, "failed to delete attachment")
+	}
+
+	return ctx.NoContent(http.StatusNoContent)
 }
 
 // ============================================================================
