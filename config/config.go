@@ -42,13 +42,14 @@ func SwitchEnvironment(env environment) {
 type (
 	// Config stores complete configuration.
 	Config struct {
-		HTTP     HTTPConfig
-		App      AppConfig
-		Cache    CacheConfig
-		Database DatabaseConfig
-		Files    FilesConfig
-		Tasks    TasksConfig
-		Mail     MailConfig
+		HTTP      HTTPConfig
+		App       AppConfig
+		Cache     CacheConfig
+		Database  DatabaseConfig
+		Files     FilesConfig
+		Tasks     TasksConfig
+		Mail      MailConfig
+		Messenger MessengerConfig
 	}
 
 	// HTTPConfig stores HTTP configuration.
@@ -118,6 +119,12 @@ type (
 		User        string
 		Password    string
 		FromAddress string
+	}
+
+	// MessengerConfig stores messenger-specific configuration.
+	MessengerConfig struct {
+		MaxFileSize      int64    // Maximum file size in bytes (default: 10MB)
+		AllowedFileTypes []string // Allowed MIME types (e.g., ["image/*", "application/pdf"])
 	}
 )
 

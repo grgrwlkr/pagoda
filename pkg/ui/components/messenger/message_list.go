@@ -19,13 +19,14 @@ func MessageList(r *ui.Request, messages []MessageData) Node {
 }
 
 type MessageData struct {
-	ID        int64
-	Content   string
-	UserID    int64
-	UserName  string
-	CreatedAt time.Time
-	EditedAt  *time.Time
-	Reactions []ReactionData
+	ID          int64
+	Content     string
+	UserID      int64
+	UserName    string
+	CreatedAt   time.Time
+	EditedAt    *time.Time
+	Reactions   []ReactionData
+	Attachments []FileAttachmentData
 }
 
 type ReactionData struct {
@@ -77,9 +78,18 @@ func messageItem(r *ui.Request, msg MessageData) Node {
 				),
 			),
 			// Message content
-			Div(
-				Class("text-base-content/90 whitespace-pre-wrap break-words"),
-				Text(msg.Content),
+			If(msg.Content != "",
+				Div(
+					Class("text-base-content/90 whitespace-pre-wrap break-words"),
+					Text(msg.Content),
+				),
+			),
+			// Attachments (if any)
+			If(len(msg.Attachments) > 0,
+				Div(
+					Class("mt-2 space-y-2"),
+					Group(renderAttachments(r, msg.Attachments)),
+				),
 			),
 			// Reactions (if any)
 			If(len(msg.Reactions) > 0,
@@ -108,6 +118,16 @@ func renderReactions(r *ui.Request, reactions []ReactionData, messageID int64) G
 				Title("Click to toggle reaction"),
 			),
 		)
+	}
+
+	return group
+}
+
+func renderAttachments(r *ui.Request, attachments []FileAttachmentData) Group {
+	group := make(Group, 0, len(attachments))
+
+	for _, attachment := range attachments {
+		group = append(group, FileAttachment(r, attachment))
 	}
 
 	return group

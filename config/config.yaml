@@ -56,3 +56,14 @@ mail:
   user: "admin"
   password: "admin"
   fromAddress: "admin@localhost"
+
+messenger:
+  maxFileSize: 10485760  # 10MB
+  allowedFileTypes:
+    - "image/*"
+    - "application/pdf"
+    - "text/*"
+    - "application/msword"
+    - "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    - "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    - "application/vnd.openxmlformats-officedocument.presentationml.presentation"

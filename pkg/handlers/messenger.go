@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/mikestefanello/pagoda/config"
 	"github.com/mikestefanello/pagoda/ent"
 	"github.com/mikestefanello/pagoda/ent/channel"
 	"github.com/mikestefanello/pagoda/ent/channelmember"
@@ -220,9 +221,10 @@ func (h *Messenger) getSidebarData(ctx echo.Context, workspaceID int, userID int
 
 // Messenger handles all messenger-related routes
 type Messenger struct {
-	orm   *ent.Client
-	hub   *ws.Hub // WebSocket hub for real-time events
-	files afero.Fs
+	orm    *ent.Client
+	hub    *ws.Hub // WebSocket hub for real-time events
+	files  afero.Fs
+	config *config.Config
 }
 
 func init() {
@@ -233,6 +235,7 @@ func init() {
 func (h *Messenger) Init(c *services.Container) error {
 	h.orm = c.ORM
 	h.files = c.Files
+	h.config = c.Config
 	// Get hub from WebSocket handler (will be set when WebSocket handler initializes)
 	h.hub = ws.GetHub()
 	return nil
@@ -287,6 +290,7 @@ func (h *Messenger) Routes(g *echo.Group) {
 
 	// Attachment routes
 	g.POST("/message/:id/attachments", h.AttachmentUpload).Name = routenames.MessengerAttachmentUpload
+	g.POST("/dm/:id/attachments", h.DMAttachmentUpload).Name = routenames.MessengerDMAttachmentUpload
 	g.GET("/attachment/:id", h.AttachmentView).Name = routenames.MessengerAttachmentView
 	g.DELETE("/attachment/:id", h.AttachmentDelete).Name = routenames.MessengerAttachmentDelete
 }
@@ -921,6 +925,7 @@ func (h *Messenger) ChannelView(ctx echo.Context) error {
 		Order(ent.Desc(message.FieldCreatedAt)).
 		Limit(50).
 		WithUser().
+		WithAttachments().
 		All(ctx.Request().Context())
 
 	if err != nil {
@@ -961,14 +966,28 @@ func (h *Messenger) ChannelView(ctx echo.Context) error {
 			reactionData = append(reactionData, *r)
 		}
 
+		// Convert attachments
+		attachmentData := make([]messengerComponents.FileAttachmentData, len(msg.Edges.Attachments))
+		for j, att := range msg.Edges.Attachments {
+			attachmentURL := fmt.Sprintf("/attachment/%d", att.ID)
+			attachmentData[j] = messengerComponents.FileAttachmentData{
+				ID:       int64(att.ID),
+				Filename: att.Filename,
+				MimeType: att.MimeType,
+				FileSize: att.FileSize,
+				URL:      attachmentURL,
+			}
+		}
+
 		messageData[i] = messengerComponents.MessageData{
-			ID:        int64(msg.ID),
-			Content:   msg.Content,
-			UserID:    int64(msg.UserID),
-			UserName:  msg.Edges.User.Name,
-			CreatedAt: msg.CreatedAt,
-			EditedAt:  msg.EditedAt,
-			Reactions: reactionData,
+			ID:          int64(msg.ID),
+			Content:     msg.Content,
+			UserID:      int64(msg.UserID),
+			UserName:    msg.Edges.User.Name,
+			CreatedAt:   msg.CreatedAt,
+			EditedAt:    msg.EditedAt,
+			Reactions:   reactionData,
+			Attachments: attachmentData,
 		}
 	}
 
@@ -1505,11 +1524,16 @@ func (h *Messenger) MessageCreate(ctx echo.Context) error {
 
 	// Parse form data
 	content := ctx.FormValue("content")
-	if content == "" {
-		logger.Warn("Message content is empty")
-		return echo.NewHTTPError(http.StatusBadRequest, "message content is required")
+
+	// Check if there are files being uploaded
+	form, _ := ctx.MultipartForm()
+	hasFiles := form != nil && form.File != nil && len(form.File["files"]) > 0
+
+	if content == "" && !hasFiles {
+		logger.Warn("Message content is empty and no files provided")
+		return echo.NewHTTPError(http.StatusBadRequest, "message content or file is required")
 	}
-	logger.Info("Message content parsed", "content_length", len(content))
+	logger.Info("Message content parsed", "content_length", len(content), "has_files", hasFiles)
 
 	msg, err := h.orm.Message.
 		Create().
@@ -1524,6 +1548,94 @@ func (h *Messenger) MessageCreate(ctx echo.Context) error {
 		return fail(err, "failed to create message")
 	}
 	logger.Info("Message created successfully", "message_id", msg.ID, "channel_id", channelID)
+
+	// Handle file attachments (reuse form if already parsed)
+	if form == nil {
+		form, _ = ctx.MultipartForm()
+	}
+	if err == nil && form != nil && form.File != nil {
+		files := form.File["files"]
+		if len(files) > 0 {
+			logger.Info("Processing file attachments", "file_count", len(files))
+			for _, fileHeader := range files {
+				// Validate file size
+				maxSize := int64(10485760) // Default 10MB
+				if h.config != nil && h.config.Messenger.MaxFileSize > 0 {
+					maxSize = h.config.Messenger.MaxFileSize
+				}
+				if fileHeader.Size > maxSize {
+					logger.Warn("File size exceeds maximum", "filename", fileHeader.Filename, "size", fileHeader.Size, "max_size", maxSize)
+					continue
+				}
+
+				// Validate MIME type
+				mimeType := fileHeader.Header.Get("Content-Type")
+				if h.config != nil && len(h.config.Messenger.AllowedFileTypes) > 0 {
+					allowed := false
+					for _, allowedType := range h.config.Messenger.AllowedFileTypes {
+						if matchesMimeType(mimeType, allowedType) {
+							allowed = true
+							break
+						}
+					}
+					if !allowed {
+						logger.Warn("File type not allowed", "filename", fileHeader.Filename, "mime_type", mimeType)
+						continue
+					}
+				}
+
+				// Open uploaded file
+				src, err := fileHeader.Open()
+				if err != nil {
+					logger.Error("Failed to open uploaded file", "error", err, "filename", fileHeader.Filename)
+					continue
+				}
+
+				// Create file path
+				filePath := filepath.Join("attachments", "channel", fmt.Sprintf("%d_%s", channelID, fileHeader.Filename))
+				dst, err := h.files.Create(filePath)
+				if err != nil {
+					src.Close()
+					logger.Error("Failed to create file", "error", err, "filepath", filePath)
+					continue
+				}
+
+				// Copy file content
+				if _, err = io.Copy(dst, src); err != nil {
+					src.Close()
+					dst.Close()
+					logger.Error("Failed to save file", "error", err)
+					continue
+				}
+				src.Close()
+				dst.Close()
+
+				// Get file info
+				fileInfo, err := h.files.Stat(filePath)
+				if err != nil {
+					logger.Error("Failed to get file info", "error", err)
+					continue
+				}
+
+				// Create attachment record
+				_, err = h.orm.Attachment.
+					Create().
+					SetFilename(fileHeader.Filename).
+					SetFilepath(filePath).
+					SetFileSize(fileInfo.Size()).
+					SetMimeType(mimeType).
+					SetMessageID(msg.ID).
+					SetUploadedBy(int(user.ID)).
+					Save(ctx.Request().Context())
+
+				if err != nil {
+					logger.Error("Failed to create attachment record", "error", err)
+				} else {
+					logger.Info("Attachment created", "filename", fileHeader.Filename, "message_id", msg.ID)
+				}
+			}
+		}
+	}
 
 	// Send WebSocket event to channel members
 	if h.hub != nil {
@@ -1542,15 +1654,35 @@ func (h *Messenger) MessageCreate(ctx echo.Context) error {
 			msgWithUser = msg
 		}
 
+		// Load attachments
+		msgWithAttachments, err := h.orm.Message.Query().Where(message.IDEQ(msg.ID)).WithAttachments().Only(ctx.Request().Context())
+		if err != nil {
+			msgWithAttachments = msg
+		}
+
+		// Convert attachments
+		attachmentData := make([]messengerComponents.FileAttachmentData, len(msgWithAttachments.Edges.Attachments))
+		for j, att := range msgWithAttachments.Edges.Attachments {
+			attachmentURL := fmt.Sprintf("/attachment/%d", att.ID)
+			attachmentData[j] = messengerComponents.FileAttachmentData{
+				ID:       int64(att.ID),
+				Filename: att.Filename,
+				MimeType: att.MimeType,
+				FileSize: att.FileSize,
+				URL:      attachmentURL,
+			}
+		}
+
 		// Convert to MessageData
 		messageData := messengerComponents.MessageData{
-			ID:        int64(msg.ID),
-			Content:   msg.Content,
-			UserID:    int64(msg.UserID),
-			UserName:  msgWithUser.Edges.User.Name,
-			CreatedAt: msg.CreatedAt,
-			EditedAt:  msg.EditedAt,
-			Reactions: []messengerComponents.ReactionData{},
+			ID:          int64(msg.ID),
+			Content:     msg.Content,
+			UserID:      int64(msg.UserID),
+			UserName:    msgWithUser.Edges.User.Name,
+			CreatedAt:   msg.CreatedAt,
+			EditedAt:    msg.EditedAt,
+			Reactions:   []messengerComponents.ReactionData{},
+			Attachments: attachmentData,
 		}
 
 		r := ui.NewRequest(ctx)
@@ -1921,6 +2053,7 @@ func (h *Messenger) DMView(ctx echo.Context) error {
 		Order(ent.Desc(directmessagecontent.FieldCreatedAt)).
 		Limit(50).
 		WithUser().
+		WithAttachments().
 		All(ctx.Request().Context())
 
 	if err != nil {
@@ -1932,14 +2065,28 @@ func (h *Messenger) DMView(ctx echo.Context) error {
 	// Convert to MessageData
 	messageData := make([]messengerComponents.MessageData, len(dmMessages))
 	for i, msg := range dmMessages {
+		// Convert attachments
+		attachmentData := make([]messengerComponents.FileAttachmentData, len(msg.Edges.Attachments))
+		for j, att := range msg.Edges.Attachments {
+			attachmentURL := fmt.Sprintf("/attachment/%d", att.ID)
+			attachmentData[j] = messengerComponents.FileAttachmentData{
+				ID:       int64(att.ID),
+				Filename: att.Filename,
+				MimeType: att.MimeType,
+				FileSize: att.FileSize,
+				URL:      attachmentURL,
+			}
+		}
+
 		messageData[i] = messengerComponents.MessageData{
-			ID:        int64(msg.ID),
-			Content:   msg.Content,
-			UserID:    int64(msg.UserID),
-			UserName:  msg.Edges.User.Name,
-			CreatedAt: msg.CreatedAt,
-			EditedAt:  nil,                                  // DM messages don't have EditedAt
-			Reactions: []messengerComponents.ReactionData{}, // DM messages don't have reactions yet
+			ID:          int64(msg.ID),
+			Content:     msg.Content,
+			UserID:      int64(msg.UserID),
+			UserName:    msg.Edges.User.Name,
+			CreatedAt:   msg.CreatedAt,
+			EditedAt:    nil,                                  // DM messages don't have EditedAt
+			Reactions:   []messengerComponents.ReactionData{}, // DM messages don't have reactions yet
+			Attachments: attachmentData,
 		}
 	}
 
@@ -2107,11 +2254,16 @@ func (h *Messenger) DMMessageCreate(ctx echo.Context) error {
 
 	// Parse form data
 	content := ctx.FormValue("content")
-	if content == "" {
-		logger.Warn("DM message create failed: content is required", "dm_id", id)
-		return echo.NewHTTPError(http.StatusBadRequest, "message content is required")
+
+	// Check if there are files being uploaded
+	form, _ := ctx.MultipartForm()
+	hasFiles := form != nil && form.File != nil && len(form.File["files"]) > 0
+
+	if content == "" && !hasFiles {
+		logger.Warn("DM message create failed: content is required and no files provided", "dm_id", id)
+		return echo.NewHTTPError(http.StatusBadRequest, "message content or file is required")
 	}
-	logger.Info("DM message content", "dm_id", id, "content_length", len(content))
+	logger.Info("DM message content", "dm_id", id, "content_length", len(content), "has_files", hasFiles)
 
 	// Create message
 	logger.Info("Creating DM message in database", "dm_id", id, "user_id", user.ID)
@@ -2127,6 +2279,94 @@ func (h *Messenger) DMMessageCreate(ctx echo.Context) error {
 		return fail(err, "failed to create message")
 	}
 	logger.Info("DM message created", "message_id", msg.ID, "dm_id", id, "user_id", user.ID)
+
+	// Handle file attachments (reuse form if already parsed)
+	if form == nil {
+		form, _ = ctx.MultipartForm()
+	}
+	if err == nil && form != nil && form.File != nil {
+		files := form.File["files"]
+		if len(files) > 0 {
+			logger.Info("Processing file attachments for DM", "file_count", len(files))
+			for _, fileHeader := range files {
+				// Validate file size
+				maxSize := int64(10485760) // Default 10MB
+				if h.config != nil && h.config.Messenger.MaxFileSize > 0 {
+					maxSize = h.config.Messenger.MaxFileSize
+				}
+				if fileHeader.Size > maxSize {
+					logger.Warn("File size exceeds maximum", "filename", fileHeader.Filename, "size", fileHeader.Size, "max_size", maxSize)
+					continue
+				}
+
+				// Validate MIME type
+				mimeType := fileHeader.Header.Get("Content-Type")
+				if h.config != nil && len(h.config.Messenger.AllowedFileTypes) > 0 {
+					allowed := false
+					for _, allowedType := range h.config.Messenger.AllowedFileTypes {
+						if matchesMimeType(mimeType, allowedType) {
+							allowed = true
+							break
+						}
+					}
+					if !allowed {
+						logger.Warn("File type not allowed", "filename", fileHeader.Filename, "mime_type", mimeType)
+						continue
+					}
+				}
+
+				// Open uploaded file
+				src, err := fileHeader.Open()
+				if err != nil {
+					logger.Error("Failed to open uploaded file", "error", err, "filename", fileHeader.Filename)
+					continue
+				}
+
+				// Create file path (organized by DM)
+				filePath := filepath.Join("attachments", "dm", fmt.Sprintf("%d_%s", id, fileHeader.Filename))
+				dst, err := h.files.Create(filePath)
+				if err != nil {
+					src.Close()
+					logger.Error("Failed to create file", "error", err, "filepath", filePath)
+					continue
+				}
+
+				// Copy file content
+				if _, err = io.Copy(dst, src); err != nil {
+					src.Close()
+					dst.Close()
+					logger.Error("Failed to save file", "error", err)
+					continue
+				}
+				src.Close()
+				dst.Close()
+
+				// Get file info
+				fileInfo, err := h.files.Stat(filePath)
+				if err != nil {
+					logger.Error("Failed to get file info", "error", err)
+					continue
+				}
+
+				// Create attachment record (for DM, we use DMContentID)
+				_, err = h.orm.Attachment.
+					Create().
+					SetFilename(fileHeader.Filename).
+					SetFilepath(filePath).
+					SetFileSize(fileInfo.Size()).
+					SetMimeType(mimeType).
+					SetDmContentID(msg.ID).
+					SetUploadedBy(int(user.ID)).
+					Save(ctx.Request().Context())
+
+				if err != nil {
+					logger.Error("Failed to create attachment record", "error", err)
+				} else {
+					logger.Info("DM attachment created", "filename", fileHeader.Filename, "dm_content_id", msg.ID)
+				}
+			}
+		}
+	}
 
 	// Update last_message_at
 	logger.Info("Updating DM last_message_at", "dm_id", id)
@@ -2173,15 +2413,35 @@ func (h *Messenger) DMMessageCreate(ctx echo.Context) error {
 			msgWithUser = msg
 		}
 
+		// Load attachments
+		msgWithAttachments, err := h.orm.DirectMessageContent.Query().Where(directmessagecontent.IDEQ(msg.ID)).WithAttachments().Only(ctx.Request().Context())
+		if err != nil {
+			msgWithAttachments = msg
+		}
+
+		// Convert attachments
+		attachmentData := make([]messengerComponents.FileAttachmentData, len(msgWithAttachments.Edges.Attachments))
+		for j, att := range msgWithAttachments.Edges.Attachments {
+			attachmentURL := fmt.Sprintf("/attachment/%d", att.ID)
+			attachmentData[j] = messengerComponents.FileAttachmentData{
+				ID:       int64(att.ID),
+				Filename: att.Filename,
+				MimeType: att.MimeType,
+				FileSize: att.FileSize,
+				URL:      attachmentURL,
+			}
+		}
+
 		// Convert to MessageData
 		messageData := messengerComponents.MessageData{
-			ID:        int64(msg.ID),
-			Content:   msg.Content,
-			UserID:    int64(msg.UserID),
-			UserName:  msgWithUser.Edges.User.Name,
-			CreatedAt: msg.CreatedAt,
-			EditedAt:  nil,                                  // DM messages don't have EditedAt
-			Reactions: []messengerComponents.ReactionData{}, // DM messages don't have reactions
+			ID:          int64(msg.ID),
+			Content:     msg.Content,
+			UserID:      int64(msg.UserID),
+			UserName:    msgWithUser.Edges.User.Name,
+			CreatedAt:   msg.CreatedAt,
+			EditedAt:    nil,                                  // DM messages don't have EditedAt
+			Reactions:   []messengerComponents.ReactionData{}, // DM messages don't have reactions
+			Attachments: attachmentData,
 		}
 
 		r := ui.NewRequest(ctx)
@@ -2363,6 +2623,30 @@ func (h *Messenger) AttachmentUpload(ctx echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "file is required")
 	}
 
+	// Validate file size
+	maxSize := int64(10485760) // Default 10MB
+	if h.config != nil && h.config.Messenger.MaxFileSize > 0 {
+		maxSize = h.config.Messenger.MaxFileSize
+	}
+	if file.Size > maxSize {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("file size exceeds maximum allowed size of %d bytes", maxSize))
+	}
+
+	// Validate MIME type
+	mimeType := file.Header.Get("Content-Type")
+	if h.config != nil && len(h.config.Messenger.AllowedFileTypes) > 0 {
+		allowed := false
+		for _, allowedType := range h.config.Messenger.AllowedFileTypes {
+			if matchesMimeType(mimeType, allowedType) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("file type %s is not allowed", mimeType))
+		}
+	}
+
 	// Open uploaded file
 	src, err := file.Open()
 	if err != nil {
@@ -2404,6 +2688,126 @@ func (h *Messenger) AttachmentUpload(ctx echo.Context) error {
 		return fail(err, "failed to create attachment record")
 	}
 
+	return ctx.JSON(http.StatusCreated, attachment)
+}
+
+// DMAttachmentUpload uploads a file attachment to a direct message
+func (h *Messenger) DMAttachmentUpload(ctx echo.Context) error {
+	logger := log.Ctx(ctx)
+	logger.Info("=== DM ATTACHMENT UPLOAD START ===")
+
+	dmID, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		logger.Error("Invalid DM ID", "error", err, "id_param", ctx.Param("id"))
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid DM ID")
+	}
+	logger.Info("Uploading attachment to DM", "dm_id", dmID)
+
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+	logger.Info("User uploading attachment", "user_id", user.ID, "user_name", user.Name)
+
+	// Verify DM exists and user is part of it
+	dm, err := h.orm.DirectMessage.Get(ctx.Request().Context(), dmID)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			logger.Warn("DM not found", "dm_id", dmID)
+			return echo.NewHTTPError(http.StatusNotFound, "direct message not found")
+		}
+		logger.Error("Failed to get DM", "error", err, "dm_id", dmID)
+		return fail(err, "failed to get direct message")
+	}
+
+	// Check if user is part of this DM
+	if dm.User1ID != int(user.ID) && dm.User2ID != int(user.ID) {
+		logger.Warn("User not authorized to upload to this DM", "user_id", user.ID, "dm_id", dmID)
+		return echo.NewHTTPError(http.StatusForbidden, "you are not part of this conversation")
+	}
+	logger.Info("User verified as part of DM", "user_id", user.ID)
+
+	// Get file from form
+	file, err := ctx.FormFile("file")
+	if err != nil {
+		logger.Error("File not provided", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "file is required")
+	}
+	logger.Info("File received", "filename", file.Filename, "size", file.Size)
+
+	// Validate file size
+	maxSize := int64(10485760) // Default 10MB
+	if h.config != nil && h.config.Messenger.MaxFileSize > 0 {
+		maxSize = h.config.Messenger.MaxFileSize
+	}
+	if file.Size > maxSize {
+		logger.Warn("File size exceeds maximum", "size", file.Size, "max_size", maxSize)
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("file size exceeds maximum allowed size of %d bytes", maxSize))
+	}
+
+	// Validate MIME type
+	mimeType := file.Header.Get("Content-Type")
+	if h.config != nil && len(h.config.Messenger.AllowedFileTypes) > 0 {
+		allowed := false
+		for _, allowedType := range h.config.Messenger.AllowedFileTypes {
+			if matchesMimeType(mimeType, allowedType) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			logger.Warn("File type not allowed", "mime_type", mimeType)
+			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("file type %s is not allowed", mimeType))
+		}
+	}
+	logger.Info("File validation passed", "mime_type", mimeType)
+
+	// Open uploaded file
+	src, err := file.Open()
+	if err != nil {
+		logger.Error("Failed to open uploaded file", "error", err)
+		return fail(err, "failed to open uploaded file")
+	}
+	defer src.Close()
+
+	// Create file path in attachments directory (organized by DM)
+	filePath := filepath.Join("attachments", "dm", fmt.Sprintf("%d_%s", dmID, file.Filename))
+	dst, err := h.files.Create(filePath)
+	if err != nil {
+		logger.Error("Failed to create file", "error", err, "filepath", filePath)
+		return fail(err, "failed to create file")
+	}
+	defer dst.Close()
+
+	// Copy file content
+	if _, err = io.Copy(dst, src); err != nil {
+		logger.Error("Failed to save file", "error", err)
+		return fail(err, "failed to save file")
+	}
+	logger.Info("File saved", "filepath", filePath)
+
+	// Get file info
+	fileInfo, err := h.files.Stat(filePath)
+	if err != nil {
+		logger.Error("Failed to get file info", "error", err)
+		return fail(err, "failed to get file info")
+	}
+
+	// Create attachment record (for DM, we use DMContentID instead of MessageID)
+	// For now, we'll create attachment without DMContentID and link it later when message is created
+	attachment, err := h.orm.Attachment.
+		Create().
+		SetFilename(file.Filename).
+		SetFilepath(filePath).
+		SetFileSize(fileInfo.Size()).
+		SetMimeType(mimeType).
+		SetNillableDmContentID(nil). // Will be set when DM message is created
+		SetUploadedBy(int(user.ID)).
+		Save(ctx.Request().Context())
+
+	if err != nil {
+		logger.Error("Failed to create attachment record", "error", err)
+		return fail(err, "failed to create attachment record")
+	}
+
+	logger.Info("=== DM ATTACHMENT UPLOAD END ===", "attachment_id", attachment.ID)
 	return ctx.JSON(http.StatusCreated, attachment)
 }
 
@@ -2475,6 +2879,22 @@ func (h *Messenger) AttachmentDelete(ctx echo.Context) error {
 	}
 
 	return ctx.NoContent(http.StatusNoContent)
+}
+
+// matchesMimeType checks if a MIME type matches a pattern (supports wildcards like "image/*")
+func matchesMimeType(mimeType, pattern string) bool {
+	if pattern == "*" || pattern == "*/*" {
+		return true
+	}
+	if mimeType == pattern {
+		return true
+	}
+	// Check wildcard patterns like "image/*"
+	if strings.HasSuffix(pattern, "/*") {
+		prefix := strings.TrimSuffix(pattern, "/*")
+		return strings.HasPrefix(mimeType, prefix+"/")
+	}
+	return false
 }
 
 // ============================================================================

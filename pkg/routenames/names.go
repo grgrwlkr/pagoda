@@ -73,9 +73,10 @@ const (
 	MessengerReactionRemove = "messenger.reaction.remove"
 
 	// Attachment routes
-	MessengerAttachmentUpload = "messenger.attachment.upload"
-	MessengerAttachmentView   = "messenger.attachment.view"
-	MessengerAttachmentDelete = "messenger.attachment.delete"
+	MessengerAttachmentUpload   = "messenger.attachment.upload"
+	MessengerDMAttachmentUpload = "messenger.dm.attachment.upload"
+	MessengerAttachmentView     = "messenger.attachment.view"
+	MessengerAttachmentDelete   = "messenger.attachment.delete"
 
 	// Search routes
 	MessengerSearch         = "messenger.search"
