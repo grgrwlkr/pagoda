@@ -46,8 +46,8 @@ func Messenger(r *ui.Request, content Node) Node {
 						// Right panel content will be added via HTMX or components
 					),
 				),
-				HtmxListeners(r),
 			),
+			HtmxListeners(r),
 		),
 	)
 }

@@ -373,8 +373,13 @@ func (h *Messenger) RootRedirect(ctx echo.Context) error {
 
 	logger.Info("Workspaces fetched", "count", len(workspaces))
 
-	if len(workspaces) > 0 {
-		// Redirect to first workspace
+	if len(workspaces) == 0 {
+		// No workspaces - show workspace creation page
+		logger.Info("No workspaces found, showing workspace creation page")
+		logger.Info("=== ROOT REDIRECT END ===")
+		return h.WorkspaceCreatePage(ctx)
+	} else if len(workspaces) == 1 {
+		// One workspace - redirect to it automatically
 		redirectURL := ctx.Echo().Reverse(routenames.MessengerWorkspaceView, workspaces[0].ID)
 		logger.Info("Redirecting to first workspace", "workspace_id", workspaces[0].ID, "redirect_url", redirectURL)
 		logger.Info("=== ROOT REDIRECT END ===")
@@ -382,17 +387,18 @@ func (h *Messenger) RootRedirect(ctx echo.Context) error {
 			Route(routenames.MessengerWorkspaceView).
 			Params(workspaces[0].ID).
 			Go()
+	} else {
+		// Multiple workspaces - show selection page
+		logger.Info("Multiple workspaces found, showing selection page", "count", len(workspaces))
+		logger.Info("=== ROOT REDIRECT END ===")
+		return h.WorkspaceSelectPage(ctx)
 	}
-
-	// No workspaces, redirect to workspace list
-	logger.Info("No workspaces found, redirecting to workspace list")
-	logger.Info("=== ROOT REDIRECT END ===")
-	return redirect.New(ctx).
-		Route(routenames.MessengerWorkspaceList).
-		Go()
 }
 
 // WorkspaceList returns a list of workspaces for the authenticated user
+// If user has no workspaces, redirects to creation page
+// If user has one workspace, redirects to that workspace
+// If user has multiple workspaces, shows selection page
 func (h *Messenger) WorkspaceList(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
 	logger.Info("=== WORKSPACE LIST START ===")
@@ -404,6 +410,7 @@ func (h *Messenger) WorkspaceList(ctx echo.Context) error {
 		Query().
 		Where(workspacemember.UserIDEQ(int(user.ID))).
 		QueryWorkspace().
+		Order(ent.Desc(workspace.FieldCreatedAt)).
 		All(ctx.Request().Context())
 
 	if err != nil {
@@ -413,29 +420,78 @@ func (h *Messenger) WorkspaceList(ctx echo.Context) error {
 
 	logger.Info("Workspaces loaded", "count", len(workspaces), "user_id", user.ID)
 
-	// If no workspaces, show empty sidebar and welcome message
-	var sidebarData messengerComponents.SidebarData
-	if len(workspaces) > 0 {
-		// Get sidebar data for first workspace
-		sidebarData, err = h.getSidebarData(ctx, workspaces[0].ID, int(user.ID), nil, nil)
-		if err != nil {
-			return fail(err, "failed to load sidebar data")
-		}
+	// Redirect based on workspace count
+	if len(workspaces) == 0 {
+		// No workspaces - redirect to creation page
+		logger.Info("No workspaces found, redirecting to creation page")
+		logger.Info("=== WORKSPACE LIST END ===")
+		return h.WorkspaceCreatePage(ctx)
+	} else if len(workspaces) == 1 {
+		// One workspace - redirect to it
+		logger.Info("One workspace found, redirecting to it", "workspace_id", workspaces[0].ID)
+		logger.Info("=== WORKSPACE LIST END ===")
+		return redirect.New(ctx).
+			Route(routenames.MessengerWorkspaceView).
+			Params(workspaces[0].ID).
+			Go()
 	} else {
-		// Empty sidebar
-		sidebarData = messengerComponents.SidebarData{
-			Channels:       []messengerComponents.ChannelData{},
-			DirectMessages: []messengerComponents.DMData{},
-		}
+		// Multiple workspaces - show selection page
+		logger.Info("Multiple workspaces found, showing selection page", "count", len(workspaces))
+		logger.Info("=== WORKSPACE LIST END ===")
+		return h.WorkspaceSelectPage(ctx)
+	}
+}
+
+// WorkspaceCreatePage renders a page for creating the first workspace
+func (h *Messenger) WorkspaceCreatePage(ctx echo.Context) error {
+	logger := log.Ctx(ctx)
+	logger.Info("=== WORKSPACE CREATE PAGE START ===")
+
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+	logger.Info("Rendering workspace creation page", "user_id", user.ID)
+
+	// Empty sidebar data
+	sidebarData := messengerComponents.SidebarData{
+		Channels:       []messengerComponents.ChannelData{},
+		DirectMessages: []messengerComponents.DMData{},
+	}
+	ctx.Set(context.MessengerSidebarKey, sidebarData)
+
+	logger.Info("=== WORKSPACE CREATE PAGE END ===")
+	return messengerPages.WorkspaceCreate(ctx)
+}
+
+// WorkspaceSelectPage renders a page for selecting a workspace when user has multiple workspaces
+func (h *Messenger) WorkspaceSelectPage(ctx echo.Context) error {
+	logger := log.Ctx(ctx)
+	logger.Info("=== WORKSPACE SELECT PAGE START ===")
+
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+	logger.Info("Loading workspaces for selection", "user_id", user.ID)
+
+	workspaces, err := h.orm.WorkspaceMember.
+		Query().
+		Where(workspacemember.UserIDEQ(int(user.ID))).
+		QueryWorkspace().
+		Order(ent.Desc(workspace.FieldCreatedAt)).
+		All(ctx.Request().Context())
+
+	if err != nil {
+		logger.Error("Failed to fetch workspaces", "error", err, "user_id", user.ID)
+		return fail(err, "failed to fetch workspaces")
 	}
 
-	// Store sidebar data in context
-	ctx.Set(context.MessengerSidebarKey, sidebarData)
-	logger.Info("Sidebar data stored in context", "channels_count", len(sidebarData.Channels), "dms_count", len(sidebarData.DirectMessages))
+	logger.Info("Workspaces loaded for selection", "count", len(workspaces), "user_id", user.ID)
 
-	// Render workspace list page
-	logger.Info("=== WORKSPACE LIST END ===")
-	return messengerPages.Workspace(ctx)
+	// Empty sidebar data
+	sidebarData := messengerComponents.SidebarData{
+		Channels:       []messengerComponents.ChannelData{},
+		DirectMessages: []messengerComponents.DMData{},
+	}
+	ctx.Set(context.MessengerSidebarKey, sidebarData)
+
+	logger.Info("=== WORKSPACE SELECT PAGE END ===")
+	return messengerPages.WorkspaceSelect(ctx, workspaces)
 }
 
 // WorkspaceView shows a workspace and redirects to the workspace page
@@ -1171,9 +1227,17 @@ func (h *Messenger) ChannelCreate(ctx echo.Context) error {
 
 	// If HTMX request, close modal and redirect
 	if ctx.Request().Header.Get("HX-Request") != "" {
-		redirectURL := ctx.Echo().Reverse(routenames.MessengerChannelView, ch.ID)
-		logger.Info("HTMX request detected, redirecting", "redirect_url", redirectURL, "channel_id", ch.ID)
-		ctx.Response().Header().Set("HX-Redirect", redirectURL)
+		// Проверяем, что Echo не nil перед вызовом Reverse
+		if echoInstance := ctx.Echo(); echoInstance != nil {
+			redirectURL := echoInstance.Reverse(routenames.MessengerChannelView, ch.ID)
+			logger.Info("HTMX request detected, redirecting", "redirect_url", redirectURL, "channel_id", ch.ID)
+			ctx.Response().Header().Set("HX-Redirect", redirectURL)
+		} else {
+			// Fallback: формируем URL вручную
+			redirectURL := fmt.Sprintf("/channel/%d", ch.ID)
+			logger.Warn("Echo instance is nil, using manual URL", "redirect_url", redirectURL, "channel_id", ch.ID)
+			ctx.Response().Header().Set("HX-Redirect", redirectURL)
+		}
 		logger.Info("=== CHANNEL CREATE END ===")
 		return ctx.NoContent(http.StatusOK)
 	}
@@ -1185,18 +1249,119 @@ func (h *Messenger) ChannelCreate(ctx echo.Context) error {
 
 // ChannelCreateForm renders the channel creation form modal
 func (h *Messenger) ChannelCreateForm(ctx echo.Context) error {
-	workspaceID, err := strconv.Atoi(ctx.Param("workspace_id"))
+	logger := log.Ctx(ctx)
+	logger.Info("=== CHANNEL CREATE FORM START ===")
+
+	workspaceIDParam := ctx.Param("workspace_id")
+	logger.Info("Parsing workspace ID from URL", "workspace_id_param", workspaceIDParam, "all_params", ctx.ParamNames())
+
+	workspaceID, err := strconv.Atoi(workspaceIDParam)
 	if err != nil {
+		logger.Error("Invalid workspace ID", "error", err, "workspace_id_param", workspaceIDParam, "all_params", ctx.ParamNames())
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid workspace ID")
 	}
 
-	r := ui.NewRequest(ctx)
-	modal := messengerComponents.ChannelCreateModal(r, int64(workspaceID), nil)
-	var buf bytes.Buffer
-	if err := modal.Render(&buf); err != nil {
-		return fail(err, "failed to render modal")
+	if workspaceID <= 0 {
+		logger.Error("Workspace ID is zero or negative", "workspace_id", workspaceID, "workspace_id_param", workspaceIDParam)
+		return echo.NewHTTPError(http.StatusBadRequest, "workspace ID must be greater than 0")
 	}
-	return ctx.HTML(http.StatusOK, buf.String())
+
+	logger.Info("Rendering channel create form", "workspace_id", workspaceID)
+
+	// Проверяем, что контекст не nil
+	if ctx == nil {
+		logger.Error("Context is nil")
+		return echo.NewHTTPError(http.StatusInternalServerError, "internal server error")
+	}
+
+	// Проверяем, что Request() не nil перед созданием UI Request
+	if ctx.Request() == nil {
+		logger.Error("Request is nil")
+		return echo.NewHTTPError(http.StatusInternalServerError, "internal server error")
+	}
+
+	r := ui.NewRequest(ctx)
+	if r == nil {
+		logger.Error("Failed to create UI request")
+		return echo.NewHTTPError(http.StatusInternalServerError, "internal server error")
+	}
+
+	// Проверяем, что Context в Request не nil
+	if r.Context == nil {
+		logger.Error("Request context is nil")
+		return echo.NewHTTPError(http.StatusInternalServerError, "internal server error")
+	}
+
+	// Проверяем, что Echo доступен
+	if r.Context.Echo() == nil {
+		logger.Warn("Echo instance is nil, using fallback paths")
+		// Продолжаем, так как Path() теперь имеет fallback
+	}
+
+	logger.Info("Rendering channel create modal", "workspace_id", workspaceID)
+
+	// Проверяем, что r полностью инициализирован
+	if r == nil {
+		logger.Error("Request is nil")
+		return echo.NewHTTPError(http.StatusInternalServerError, "internal server error")
+	}
+
+	// Проверяем, что CSRF токен доступен (может быть пустым, но не должен вызывать панику)
+	logger.Info("Request details", "csrf_length", len(r.CSRF), "has_context", r.Context != nil, "has_echo", r.Context != nil && r.Context.Echo() != nil)
+
+	// Защита от паники при создании и рендеринге модального окна
+	var htmlContent string
+	var panicErr interface{}
+	func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				panicErr = rec
+				logger.Error("Panic while creating/rendering modal", "panic", rec, "workspace_id", workspaceID, "panic_type", fmt.Sprintf("%T", rec))
+				// Создаём простой HTML модал с ошибкой как fallback
+				htmlContent = fmt.Sprintf(`<div id="channel-create-modal" class="modal"><div class="modal-box"><div class="text-error">Error: Failed to create modal. Please try again.</div></div></div>`)
+			}
+		}()
+
+		logger.Info("Creating modal component", "workspace_id", workspaceID)
+		// Создаём модальное окно
+		modal := messengerComponents.ChannelCreateModal(r, int64(workspaceID), nil)
+
+		if modal == nil {
+			logger.Error("Modal component is nil")
+			htmlContent = fmt.Sprintf(`<div id="channel-create-modal" class="modal"><div class="modal-box"><div class="text-error">Error: Modal component is nil</div></div></div>`)
+			return
+		}
+
+		logger.Info("Modal component created, rendering to buffer")
+		// Рендерим в буфер
+		var buf bytes.Buffer
+		if err := modal.Render(&buf); err != nil {
+			logger.Error("Failed to render modal", "error", err)
+			htmlContent = fmt.Sprintf(`<div id="channel-create-modal" class="modal"><div class="modal-box"><div class="text-error">Error: Failed to render modal: %v</div></div></div>`, err)
+			return
+		}
+		htmlContent = buf.String()
+		logger.Info("Modal rendered successfully", "buffer_size", len(htmlContent))
+		// Логируем первые 500 символов HTML для отладки
+		if len(htmlContent) > 500 {
+			logger.Info("Modal HTML preview", "html_preview", htmlContent[:500]+"...")
+		} else {
+			logger.Info("Modal HTML", "html", htmlContent)
+		}
+	}()
+
+	if panicErr != nil {
+		logger.Error("Panic occurred during modal creation/render", "panic", panicErr, "html_content_length", len(htmlContent))
+	}
+
+	if htmlContent == "" {
+		// Если по какой-то причине контент пустой, возвращаем ошибку
+		logger.Error("Modal content is empty")
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to render modal")
+	}
+
+	logger.Info("=== CHANNEL CREATE FORM END ===")
+	return ctx.HTML(http.StatusOK, htmlContent)
 }
 
 // ChannelUpdate updates a channel

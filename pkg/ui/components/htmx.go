@@ -26,11 +26,25 @@ func HtmxListeners(r *ui.Request) Node {
 		})
 	`
 
+	const htmxModal = `
+		document.body.addEventListener('htmx:afterSwap', function(evt) {
+			// Автоматически открываем модальное окно, если был вставлен dialog элемент
+			const modal = document.getElementById('channel-create-modal');
+			if (modal && modal.tagName === 'DIALOG' && typeof modal.showModal === 'function') {
+				// Используем requestAnimationFrame для гарантии, что элемент полностью в DOM
+				requestAnimationFrame(function() {
+					modal.showModal();
+				});
+			}
+		});
+	`
+
 	return Group{
 		Script(Raw(htmxErr)),
 		Iff(len(r.CSRF) > 0, func() Node {
 			return Script(Raw(fmt.Sprintf(htmxCSRF, r.CSRF)))
 		}),
+		Script(Raw(htmxModal)),
 	}
 }
 

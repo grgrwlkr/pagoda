@@ -2,7 +2,9 @@ package messenger
 
 import (
 	"github.com/labstack/echo/v4"
+	"github.com/mikestefanello/pagoda/pkg/context"
 	"github.com/mikestefanello/pagoda/pkg/ui"
+	messengerComponents "github.com/mikestefanello/pagoda/pkg/ui/components/messenger"
 	messengerLayouts "github.com/mikestefanello/pagoda/pkg/ui/layouts"
 	. "maragu.dev/gomponents"
 	. "maragu.dev/gomponents/html"
@@ -12,6 +14,14 @@ import (
 func Workspace(ctx echo.Context) error {
 	r := ui.NewRequest(ctx)
 	r.Title = "Workspace"
+
+	// Получаем workspace ID из sidebar data, которая хранится в контексте
+	var workspaceID int64
+	if sidebarData := ctx.Get(context.MessengerSidebarKey); sidebarData != nil {
+		if data, ok := sidebarData.(messengerComponents.SidebarData); ok {
+			workspaceID = data.WorkspaceID
+		}
+	}
 
 	content := Div(
 		Class("flex flex-col items-center justify-center h-full p-8"),
@@ -30,9 +40,9 @@ func Workspace(ctx echo.Context) error {
 				Button(
 					Class("btn btn-primary"),
 					Text("Create Channel"),
-					Attr("hx-get", r.Path("messenger.channel.create.form")),
+					Attr("hx-get", r.Path("messenger.channel.create.form", workspaceID)), // Передаём workspaceID в URL
 					Attr("hx-target", "body"),
-					Attr("hx-swap", "beforeend"),
+					Attr("hx-swap", "beforeend"), // Модальное окно откроется автоматически через глобальный обработчик HTMX
 				),
 			),
 		),

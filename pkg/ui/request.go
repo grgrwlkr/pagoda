@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+
 	"github.com/labstack/echo/v4"
 	"github.com/mikestefanello/pagoda/config"
 	"github.com/mikestefanello/pagoda/ent"
@@ -65,9 +67,21 @@ type (
 
 // NewRequest generates a new Request using the Echo context of a given HTTP request.
 func NewRequest(ctx echo.Context) *Request {
+	// Проверяем, что ctx не nil
+	if ctx == nil {
+		// Возвращаем пустой Request, если ctx nil
+		return &Request{}
+	}
+
+	// Получаем текущий путь, проверяя на nil
+	currentPath := "/"
+	if req := ctx.Request(); req != nil && req.URL != nil {
+		currentPath = req.URL.Path
+	}
+
 	p := &Request{
 		Context:     ctx,
-		CurrentPath: ctx.Request().URL.Path,
+		CurrentPath: currentPath,
 		Htmx:        htmx.GetRequest(ctx),
 	}
 
@@ -93,8 +107,109 @@ func NewRequest(ctx echo.Context) *Request {
 // Path generates a URL path for a given route name and optional route parameters.
 // This will only work if you've supplied names for each of your routes. It's optional to use and helps avoids
 // having duplicate, hard-coded paths and parameters all over your application.
-func (r *Request) Path(routeName string, routeParams ...any) string {
-	return r.Context.Echo().Reverse(routeName, routeParams...)
+func (r *Request) Path(routeName string, routeParams ...any) (path string) {
+	// Используем именованный return для корректной работы с defer recover
+	defer func() {
+		if rec := recover(); rec != nil {
+			// Если произошла паника, используем fallback путь
+			path = fallbackPath(routeName, routeParams...)
+		}
+		// Если path пустой, используем fallback
+		if path == "" {
+			path = fallbackPath(routeName, routeParams...)
+		}
+	}()
+
+	// Проверяем, что Request не nil
+	if r == nil {
+		return fallbackPath(routeName, routeParams...)
+	}
+
+	// Проверяем, что Context не nil
+	if r.Context == nil {
+		return fallbackPath(routeName, routeParams...)
+	}
+
+	// Получаем Echo instance
+	echoInstance := r.Context.Echo()
+	if echoInstance == nil {
+		return fallbackPath(routeName, routeParams...)
+	}
+
+	// Вызываем Reverse
+	// Echo.Reverse ожидает параметры в том же порядке, в котором они определены в route
+	// Для "/workspace/:workspace_id/channels/create/form" нужен один параметр: workspace_id
+	// Преобразуем параметры в правильный формат (int для Echo)
+	reverseParams := make([]interface{}, len(routeParams))
+	for i, param := range routeParams {
+		// Преобразуем int64 в int, если нужно
+		switch v := param.(type) {
+		case int64:
+			reverseParams[i] = int(v)
+		case int32:
+			reverseParams[i] = int(v)
+		default:
+			reverseParams[i] = param
+		}
+	}
+	path = echoInstance.Reverse(routeName, reverseParams...)
+	return path
+}
+
+// fallbackPath формирует путь вручную на основе route name
+// Используется как fallback, если Echo.Reverse не работает
+func fallbackPath(routeName string, routeParams ...any) string {
+	// Базовые пути для основных routes
+	switch routeName {
+	case "messenger.channel.create":
+		if len(routeParams) > 0 && routeParams[0] != nil {
+			// Преобразуем параметр в int64 для правильного форматирования
+			var workspaceID int64
+			switch v := routeParams[0].(type) {
+			case int64:
+				workspaceID = v
+			case int:
+				workspaceID = int64(v)
+			case int32:
+				workspaceID = int64(v)
+			default:
+				// Пытаемся преобразовать через fmt.Sprintf
+				return fmt.Sprintf("/workspace/%v/channels", routeParams[0])
+			}
+			if workspaceID > 0 {
+				return fmt.Sprintf("/workspace/%d/channels", workspaceID)
+			}
+		}
+		return "/workspace/0/channels"
+	case "messenger.channel.create.form":
+		if len(routeParams) > 0 && routeParams[0] != nil {
+			// Преобразуем параметр в int64 для правильного форматирования
+			var workspaceID int64
+			switch v := routeParams[0].(type) {
+			case int64:
+				workspaceID = v
+			case int:
+				workspaceID = int64(v)
+			case int32:
+				workspaceID = int64(v)
+			default:
+				// Пытаемся преобразовать через fmt.Sprintf
+				return fmt.Sprintf("/workspace/%v/channels/create/form", routeParams[0])
+			}
+			if workspaceID > 0 {
+				return fmt.Sprintf("/workspace/%d/channels/create/form", workspaceID)
+			}
+		}
+		return "/workspace/0/channels/create/form"
+	case "messenger.channel.view":
+		if len(routeParams) > 0 && routeParams[0] != nil {
+			return fmt.Sprintf("/channel/%v", routeParams[0])
+		}
+		return "/channel/0"
+	default:
+		// Для неизвестных routes возвращаем "/"
+		return "/"
+	}
 }
 
 // Url generates an absolute URL for a given route name and optional route parameters.

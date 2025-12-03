@@ -1,6 +1,9 @@
 package messenger
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/mikestefanello/pagoda/pkg/ui"
 	"github.com/mikestefanello/pagoda/pkg/ui/forms/messenger"
 	. "maragu.dev/gomponents"
@@ -8,272 +11,380 @@ import (
 )
 
 // ChannelCreateModal renders a modal for creating a new channel
+// Параметры:
+//   - r: объект запроса с контекстом (должен быть не nil)
+//   - workspaceID: ID workspace для создания канала
+//   - form: форма с данными (может быть nil для новой формы)
 func ChannelCreateModal(r *ui.Request, workspaceID int64, form *messenger.ChannelForm) Node {
-	return Div(
-		ID("channel-create-modal"),
-		Class("modal"),
-		Div(
-			Class("modal-box"),
-			Form(
-				Method("POST"),
-				Action(r.Path("messenger.channel.create", workspaceID)),
-				Attr("hx-post", r.Path("messenger.channel.create", workspaceID)),
-				Attr("hx-target", "body"),
-				Attr("hx-swap", "outerHTML"),
-				// CSRF token
-				If(r.CSRF != "", Input(
-					Type("hidden"),
-					Name("csrf"),
-					Value(r.CSRF),
-				)),
-				// Header
-				Div(
-					Class("flex items-center justify-between mb-4"),
-					H3(
-						Class("text-lg font-bold"),
-						Text("Create Channel"),
-					),
-					Button(
-						Type("button"),
-						Class("btn btn-sm btn-circle btn-ghost"),
-						Attr("onclick", "channel_create_modal.close()"),
-						Text("✕"),
-					),
+	// Проверяем, что r не nil (защита от panic)
+	if r == nil {
+		// Возвращаем пустой div с ошибкой, если r nil
+		return Div(Text("Error: Request is nil"))
+	}
+
+	// Проверяем, что workspaceID валидный (больше 0)
+	if workspaceID <= 0 {
+		// Если workspaceID невалидный, возвращаем ошибку
+		return Div(
+			ID("channel-create-modal"),
+			Class("modal"),
+			Div(
+				Class("modal-box"),
+				Div(Text("Error: Invalid workspace ID")),
+			),
+		)
+	}
+
+	// Формируем путь напрямую, избегая вызова r.Path() который может вызвать панику
+	// Используем прямой путь вместо r.Path() для надежности
+	createPath := fmt.Sprintf("/workspace/%d/channels", workspaceID)
+
+	// Создаем CSRF input заранее, чтобы избежать проблем с nil
+	var csrfInput Node
+	if r != nil && r.CSRF != "" {
+		csrfInput = Input(
+			Type("hidden"),
+			Name("csrf"),
+			Value(r.CSRF),
+		)
+	}
+
+	// Возвращаем полное модальное окно с id, так как вставляем его в body
+	// Используем <dialog> элемент для поддержки showModal() метода (рекомендуемый метод DaisyUI)
+	// Согласно документации DaisyUI: https://daisyui.com/components/modal/
+	// Dialog элемент можно открыть через ID.showModal() и закрыть через ID.close()
+	// Используем Raw для всего dialog элемента, так как gomponents не имеет встроенной поддержки dialog
+	modalContent := Div(
+		Class("modal-box"),
+		Form(
+			Method("POST"),
+			Action(createPath),
+			Attr("hx-post", createPath),
+			Attr("hx-target", "body"),
+			Attr("hx-swap", "outerHTML"),
+			Attr("hx-on::after-request", "if(event.detail.xhr.status === 200) { const modal = document.getElementById('channel-create-modal'); if(modal) modal.close(); }"), // Закрываем модальное окно после успешного создания
+			// CSRF token
+			func() Node {
+				if csrfInput != nil {
+					return csrfInput
+				}
+				return nil
+			}(),
+			// Header
+			Div(
+				Class("flex items-center justify-between mb-4"),
+				H3(
+					Class("text-lg font-bold"),
+					Text("Create Channel"),
 				),
-				// Form fields
+				Button(
+					Type("button"),
+					Class("btn btn-sm btn-circle btn-ghost"),
+					Attr("onclick", "document.getElementById('channel-create-modal').close()"),
+					Text("✕"),
+				),
+			),
+			// Form fields
+			Div(
+				Class("space-y-4"),
+				// Name field
 				Div(
-					Class("space-y-4"),
-					// Name field
-					Div(
-						Label(
-							Class("label"),
-							Span(
-								Class("label-text"),
-								Text("Channel Name"),
-							),
+					Label(
+						Class("label"),
+						Span(
+							Class("label-text"),
+							Text("Channel Name"),
 						),
-						Input(
+					),
+					func() Node {
+						inputAttrs := []Node{
 							Type("text"),
 							Name("name"),
 							Class("input input-bordered w-full"),
 							Placeholder("general"),
 							Required(),
-							If(form != nil, Value(form.Name)),
+						}
+						if form != nil && form.Name != "" {
+							inputAttrs = append(inputAttrs, Value(form.Name))
+						}
+						return Input(inputAttrs...)
+					}(),
+					func() Node {
+						if form != nil && form.FieldHasErrors("Name") {
+							errs := form.GetFieldErrors("Name")
+							g := make(Group, len(errs))
+							for i, err := range errs {
+								g[i] = Div(
+									Class("label"),
+									Span(
+										Class("label-text-alt text-error"),
+										Text(err),
+									),
+								)
+							}
+							return Group(g)
+						}
+						return nil
+					}(),
+				),
+				// Description field
+				Div(
+					Label(
+						Class("label"),
+						Span(
+							Class("label-text"),
+							Text("Description"),
 						),
-						If(form != nil && form.FieldHasErrors("Name"), Group(
-							func() Group {
-								errs := form.GetFieldErrors("Name")
-								g := make(Group, len(errs))
-								for i, err := range errs {
-									g[i] = Div(
-										Class("label"),
-										Span(
-											Class("label-text-alt text-error"),
-											Text(err),
-										),
-									)
-								}
-								return g
-							}(),
-						)),
 					),
-					// Description field
-					Div(
-						Label(
-							Class("label"),
-							Span(
-								Class("label-text"),
-								Text("Description"),
-							),
-						),
-						Textarea(
+					func() Node {
+						textareaAttrs := []Node{
 							Name("description"),
 							Class("textarea textarea-bordered w-full"),
 							Placeholder("What's this channel about?"),
 							Rows("3"),
-							If(form != nil, Text(form.Description)),
-						),
-					),
-					// Privacy toggle
-					Div(
-						Class("form-control"),
-						Label(
-							Class("label cursor-pointer justify-start gap-3"),
-							Input(
+						}
+						if form != nil && form.Description != "" {
+							textareaAttrs = append(textareaAttrs, Text(form.Description))
+						}
+						return Textarea(textareaAttrs...)
+					}(),
+				),
+				// Privacy toggle
+				Div(
+					Class("form-control"),
+					Label(
+						Class("label cursor-pointer justify-start gap-3"),
+						func() Node {
+							checkboxAttrs := []Node{
 								Type("checkbox"),
 								Name("is_private"),
 								Class("checkbox checkbox-primary"),
-								If(form != nil && form.IsPrivate, Checked()),
-							),
-							Span(
-								Class("label-text"),
-								Text("Make this channel private"),
-							),
+							}
+							if form != nil && form.IsPrivate {
+								checkboxAttrs = append(checkboxAttrs, Checked())
+							}
+							return Input(checkboxAttrs...)
+						}(),
+						Span(
+							Class("label-text"),
+							Text("Make this channel private"),
 						),
 					),
 				),
-				// Actions
-				Div(
-					Class("modal-action"),
-					Button(
-						Type("button"),
-						Class("btn btn-ghost"),
-						Attr("onclick", "channel_create_modal.close()"),
-						Text("Cancel"),
-					),
-					Button(
-						Type("submit"),
-						Class("btn btn-primary"),
-						Text("Create Channel"),
-					),
+			),
+			// Actions
+			Div(
+				Class("modal-action"),
+				Button(
+					Type("button"),
+					Class("btn btn-ghost"),
+					Attr("onclick", "document.getElementById('channel-create-modal').close()"),
+					Text("Cancel"),
+				),
+				Button(
+					Type("submit"),
+					Class("btn btn-primary"),
+					Text("Create Channel"),
 				),
 			),
 		),
-		Form(
-			Method("dialog"),
-			Class("modal-backdrop"),
-			Button(Text("close")),
-		),
-		Attr("onclick", "if(event.target === this) this.close()"),
 	)
+
+	backdropForm := Form(
+		Method("dialog"),
+		Class("modal-backdrop"),
+		Button(Text("close")),
+	)
+
+	// Возвращаем dialog элемент через Raw, так как gomponents не поддерживает dialog напрямую
+	// Формируем HTML вручную для dialog элемента
+	// Добавляем onclick для закрытия при клике на backdrop
+	return Raw(fmt.Sprintf(`<dialog id="channel-create-modal" class="modal" onclick="if(event.target === this) this.close()">%s%s</dialog>`,
+		renderNodeToString(modalContent),
+		renderNodeToString(backdropForm),
+	))
+}
+
+// renderNodeToString рендерит Node в строку HTML
+func renderNodeToString(node Node) string {
+	var buf strings.Builder
+	if err := node.Render(&buf); err != nil {
+		return ""
+	}
+	return buf.String()
 }
 
 // WorkspaceCreateModal renders a modal for creating a new workspace
 func WorkspaceCreateModal(r *ui.Request, form *messenger.WorkspaceForm) Node {
-	return Div(
-		ID("workspace-create-modal"),
-		Class("modal"),
-		Div(
-			Class("modal-box"),
-			Form(
-				Method("POST"),
-				Action(r.Path("messenger.workspace.create")),
-				Attr("hx-post", r.Path("messenger.workspace.create")),
-				Attr("hx-target", "body"),
-				Attr("hx-swap", "outerHTML"),
-				// CSRF token
-				If(r.CSRF != "", Input(
-					Type("hidden"),
-					Name("csrf"),
-					Value(r.CSRF),
-				)),
-				// Header
-				Div(
-					Class("flex items-center justify-between mb-4"),
-					H3(
-						Class("text-lg font-bold"),
-						Text("Create Workspace"),
-					),
-					Button(
-						Type("button"),
-						Class("btn btn-sm btn-circle btn-ghost"),
-						Attr("onclick", "workspace_create_modal.close()"),
-						Text("✕"),
-					),
+	// Формируем путь для создания workspace
+	createPath := r.Path("messenger.workspace.create")
+	if createPath == "" {
+		createPath = "/workspace/create"
+	}
+
+	// Создаем CSRF input заранее
+	var csrfInput Node
+	if r != nil && r.CSRF != "" {
+		csrfInput = Input(
+			Type("hidden"),
+			Name("csrf"),
+			Value(r.CSRF),
+		)
+	}
+
+	modalContent := Div(
+		Class("modal-box"),
+		Form(
+			Method("POST"),
+			Action(createPath),
+			Attr("hx-post", createPath),
+			Attr("hx-target", "body"),
+			Attr("hx-swap", "outerHTML"),
+			Attr("hx-on::after-request", "if(event.detail.xhr.status === 200) { const modal = document.getElementById('workspace-create-modal'); if(modal) modal.close(); }"),
+			// CSRF token
+			func() Node {
+				if csrfInput != nil {
+					return csrfInput
+				}
+				return nil
+			}(),
+			// Header
+			Div(
+				Class("flex items-center justify-between mb-4"),
+				H3(
+					Class("text-lg font-bold"),
+					Text("Create Workspace"),
 				),
-				// Form fields
+				Button(
+					Type("button"),
+					Class("btn btn-sm btn-circle btn-ghost"),
+					Attr("onclick", "document.getElementById('workspace-create-modal').close()"),
+					Text("✕"),
+				),
+			),
+			// Form fields
+			Div(
+				Class("space-y-4"),
+				// Name field
 				Div(
-					Class("space-y-4"),
-					// Name field
-					Div(
-						Label(
-							Class("label"),
-							Span(
-								Class("label-text"),
-								Text("Workspace Name"),
-							),
+					Label(
+						Class("label"),
+						Span(
+							Class("label-text"),
+							Text("Workspace Name"),
 						),
-						Input(
+					),
+					func() Node {
+						inputAttrs := []Node{
 							Type("text"),
 							Name("name"),
 							Class("input input-bordered w-full"),
 							Placeholder("My Workspace"),
 							Required(),
-							If(form != nil, Value(form.Name)),
+						}
+						if form != nil && form.Name != "" {
+							inputAttrs = append(inputAttrs, Value(form.Name))
+						}
+						return Input(inputAttrs...)
+					}(),
+					func() Node {
+						if form != nil && form.FieldHasErrors("Name") {
+							errs := form.GetFieldErrors("Name")
+							g := make(Group, len(errs))
+							for i, err := range errs {
+								g[i] = Div(
+									Class("label"),
+									Span(
+										Class("label-text-alt text-error"),
+										Text(err),
+									),
+								)
+							}
+							return Group(g)
+						}
+						return nil
+					}(),
+				),
+				// Slug field
+				Div(
+					Label(
+						Class("label"),
+						Span(
+							Class("label-text"),
+							Text("URL Slug"),
 						),
-						If(form != nil && form.FieldHasErrors("Name"), Group(
-							func() Group {
-								errs := form.GetFieldErrors("Name")
-								g := make(Group, len(errs))
-								for i, err := range errs {
-									g[i] = Div(
-										Class("label"),
-										Span(
-											Class("label-text-alt text-error"),
-											Text(err),
-										),
-									)
-								}
-								return g
-							}(),
-						)),
 					),
-					// Slug field
-					Div(
-						Label(
-							Class("label"),
-							Span(
-								Class("label-text"),
-								Text("URL Slug"),
-							),
-						),
-						Input(
+					func() Node {
+						inputAttrs := []Node{
 							Type("text"),
 							Name("slug"),
 							Class("input input-bordered w-full"),
 							Placeholder("my-workspace"),
 							Required(),
-							If(form != nil, Value(form.Slug)),
-						),
-						Div(
-							Class("label"),
-							Span(
-								Class("label-text-alt text-base-content/60"),
-								Text("Used in the workspace URL"),
-							),
-						),
-						// Error messages would be shown here if form validation fails
-					),
-					// Description field
+						}
+						if form != nil && form.Slug != "" {
+							inputAttrs = append(inputAttrs, Value(form.Slug))
+						}
+						return Input(inputAttrs...)
+					}(),
 					Div(
-						Label(
-							Class("label"),
-							Span(
-								Class("label-text"),
-								Text("Description"),
-							),
+						Class("label"),
+						Span(
+							Class("label-text-alt text-base-content/60"),
+							Text("Used in the workspace URL"),
 						),
-						Textarea(
+					),
+				),
+				// Description field
+				Div(
+					Label(
+						Class("label"),
+						Span(
+							Class("label-text"),
+							Text("Description"),
+						),
+					),
+					func() Node {
+						textareaAttrs := []Node{
 							Name("description"),
 							Class("textarea textarea-bordered w-full"),
 							Placeholder("What's this workspace about?"),
 							Rows("3"),
-							If(form != nil, Text(form.Description)),
-						),
-					),
+						}
+						if form != nil && form.Description != "" {
+							textareaAttrs = append(textareaAttrs, Text(form.Description))
+						}
+						return Textarea(textareaAttrs...)
+					}(),
 				),
-				// Actions
-				Div(
-					Class("modal-action"),
-					Button(
-						Type("button"),
-						Class("btn btn-ghost"),
-						Attr("onclick", "workspace_create_modal.close()"),
-						Text("Cancel"),
-					),
-					Button(
-						Type("submit"),
-						Class("btn btn-primary"),
-						Text("Create Workspace"),
-					),
+			),
+			// Actions
+			Div(
+				Class("modal-action"),
+				Button(
+					Type("button"),
+					Class("btn btn-ghost"),
+					Attr("onclick", "document.getElementById('workspace-create-modal').close()"),
+					Text("Cancel"),
+				),
+				Button(
+					Type("submit"),
+					Class("btn btn-primary"),
+					Text("Create Workspace"),
 				),
 			),
 		),
-		Form(
-			Method("dialog"),
-			Class("modal-backdrop"),
-			Button(Text("close")),
-		),
-		Attr("onclick", "if(event.target === this) this.close()"),
 	)
+
+	backdropForm := Form(
+		Method("dialog"),
+		Class("modal-backdrop"),
+		Button(Text("close")),
+	)
+
+	// Возвращаем dialog элемент через Raw, так как gomponents не поддерживает dialog напрямую
+	return Raw(fmt.Sprintf(`<dialog id="workspace-create-modal" class="modal" onclick="if(event.target === this) this.close()">%s%s</dialog>`,
+		renderNodeToString(modalContent),
+		renderNodeToString(backdropForm),
+	))
 }
