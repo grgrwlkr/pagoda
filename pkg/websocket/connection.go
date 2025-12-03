@@ -1,14 +1,5 @@
 package websocket
 
-// ============================================================================
-// Slack Messenger WebSocket Connection
-// ============================================================================
-// This file handles individual WebSocket connections.
-//
-// File location: pkg/websocket/
-//
-// ============================================================================
-
 import (
 	"context"
 	"encoding/json"
@@ -21,60 +12,79 @@ import (
 	"github.com/mikestefanello/pagoda/ent/message"
 )
 
+// Константы для настройки WebSocket соединения
 const (
-	// Time allowed to write a message to the peer
+	// writeWait - время, отведённое на запись сообщения клиенту
+	// Если запись не завершится за это время, соединение считается "мёртвым"
 	writeWait = 10 * time.Second
 
-	// Time allowed to read the next pong message from the peer
+	// pongWait - время ожидания следующего pong сообщения от клиента
+	// Pong - это ответ на ping, используется для проверки, что соединение живо
+	// Если pong не приходит, соединение закрывается
 	pongWait = 60 * time.Second
 
-	// Send pings to peer with this period (must be less than pongWait)
+	// pingPeriod - период отправки ping сообщений клиенту
+	// Должен быть меньше pongWait, чтобы у клиента было время ответить
+	// Обычно 9/10 от pongWait
 	pingPeriod = (pongWait * 9) / 10
 
-	// Maximum message size allowed from peer
+	// maxMessageSize - максимальный размер сообщения от клиента
+	// Защита от слишком больших сообщений, которые могут забить память
 	maxMessageSize = 512 * 1024 // 512KB
 )
 
-// Connection is a middleman between the websocket connection and the hub.
+// Connection представляет одно WebSocket соединение
+// Это посредник между WebSocket соединением и Hub
+// Каждое соединение имеет два goroutine: ReadPump (чтение) и WritePump (запись)
 type Connection struct {
-	// The websocket connection
+	// WebSocket соединение (из библиотеки gorilla/websocket)
 	WS *websocket.Conn
 
-	// Buffered channel of outbound messages
+	// Буферизованный канал исходящих сообщений
+	// Hub отправляет сообщения в этот канал, WritePump читает и отправляет клиенту
 	Send chan []byte
 
-	// User ID associated with this connection
+	// ID пользователя, связанного с этим соединением
+	// Используется для идентификации пользователя и маршрутизации сообщений
 	UserID int64
 
-	// Hub reference
+	// Ссылка на Hub для отправки событий
 	Hub *Hub
 
-	// Context for database operations
+	// Контекст для операций с базой данных
+	// Используется при обработке событий, требующих доступа к БД
 	Ctx context.Context
 
-	// ORM client for database operations
+	// ORM клиент для операций с базой данных
+	// Используется для проверки прав доступа (например, является ли пользователь участником канала)
 	ORM *ent.Client
 
-	// Logger for logging events
+	// Логгер для логирования событий соединения
 	Logger *slog.Logger
 }
 
-// ReadPump pumps messages from the websocket connection to the hub.
+// ReadPump читает сообщения из WebSocket соединения и отправляет их в Hub
+// Запускается в отдельной goroutine для каждого соединения
+// Работает до закрытия соединения или ошибки чтения
 func (c *Connection) ReadPump() {
 	if c.Logger != nil {
 		c.Logger.Info("=== WEBSOCKET READ PUMP START ===", "user_id", c.UserID)
 	}
 
+	// defer выполнится при выходе из функции (нормальном или из-за ошибки)
 	defer func() {
 		if c.Logger != nil {
 			c.Logger.Info("WebSocket read pump closing", "user_id", c.UserID)
 		}
 
-		// Send offline status before disconnecting
+		// Отправляем событие "пользователь офлайн" перед отключением
+		// Это позволяет другим пользователям видеть, что пользователь отключился
 		offlineEvent := UserOfflineEvent(c.UserID)
 		c.Hub.Broadcast(offlineEvent.ToJSON())
 
+		// Отменяем регистрацию соединения в Hub
 		c.Hub.unregister <- c
+		// Закрываем WebSocket соединение
 		c.WS.Close()
 
 		if c.Logger != nil {
@@ -82,112 +92,147 @@ func (c *Connection) ReadPump() {
 		}
 	}()
 
+	// Устанавливаем таймаут для чтения (pongWait)
+	// Если за это время не будет получено сообщение, соединение считается "мёртвым"
 	c.WS.SetReadDeadline(time.Now().Add(pongWait))
+	// Устанавливаем максимальный размер сообщения
 	c.WS.SetReadLimit(maxMessageSize)
+	// Устанавливаем обработчик pong сообщений
+	// Pong - это ответ на ping, используется для keep-alive
 	c.WS.SetPongHandler(func(string) error {
+		// При получении pong, обновляем таймаут чтения
 		c.WS.SetReadDeadline(time.Now().Add(pongWait))
 		return nil
 	})
 
+	// Бесконечный цикл чтения сообщений
 	for {
+		// Читаем сообщение из WebSocket
+		// ReadMessage блокируется до получения сообщения или ошибки
 		_, message, err := c.WS.ReadMessage()
 		if err != nil {
+			// Проверяем, является ли ошибка неожиданным закрытием
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				// Неожиданное закрытие - логируем как предупреждение
 				if c.Logger != nil {
 					c.Logger.Warn("WebSocket unexpected close", "user_id", c.UserID, "error", err)
 				}
 			} else if c.Logger != nil {
+				// Ожидаемое закрытие (нормальное отключение) - логируем как debug
 				c.Logger.Debug("WebSocket read error (normal close)", "user_id", c.UserID, "error", err)
 			}
-			break
+			break // Выходим из цикла при любой ошибке
 		}
 
-		// Parse incoming message
+		// Парсим входящее сообщение (ожидается JSON)
 		var event Event
 		if err := json.Unmarshal(message, &event); err != nil {
+			// Не удалось распарсить JSON - отправляем ошибку клиенту
 			if c.Logger != nil {
 				c.Logger.Warn("Failed to parse WebSocket message", "user_id", c.UserID, "error", err, "message_length", len(message))
 			}
 			c.SendError("invalid_message_format", "Failed to parse message")
-			continue
+			continue // Продолжаем чтение следующих сообщений
 		}
 
-		// Log incoming event
+		// Логируем входящее событие
 		if c.Logger != nil {
 			c.Logger.Info("WebSocket event received", "user_id", c.UserID, "event_type", event.Type)
 		}
 
-		// Handle the event
+		// Обрабатываем событие
 		c.handleEvent(&event)
 	}
 }
 
-// WritePump pumps messages from the hub to the websocket connection.
+// WritePump отправляет сообщения из канала Send клиенту через WebSocket
+// Запускается в отдельной goroutine для каждого соединения
+// Работает до закрытия канала Send или ошибки записи
 func (c *Connection) WritePump() {
+	// Создаём тикер для периодической отправки ping сообщений
+	// Ping используется для keep-alive - проверки, что соединение живо
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
-		ticker.Stop()
-		c.WS.Close()
+		ticker.Stop() // Останавливаем тикер при выходе
+		c.WS.Close()  // Закрываем WebSocket соединение
 	}()
 
 	for {
 		select {
 		case message, ok := <-c.Send:
+			// Устанавливаем таймаут для записи
 			c.WS.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
-				// The hub closed the channel
+				// Hub закрыл канал - отправляем close сообщение и выходим
 				c.WS.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
 
+			// Получаем writer для отправки текстового сообщения
 			w, err := c.WS.NextWriter(websocket.TextMessage)
 			if err != nil {
-				return
+				return // Ошибка получения writer - выходим
 			}
+			// Записываем сообщение
 			w.Write(message)
 
-			// Add queued messages to the current websocket message
+			// Добавляем накопленные в канале сообщения к текущему сообщению
+			// Это оптимизация - отправляем несколько сообщений одним пакетом
 			n := len(c.Send)
 			for i := 0; i < n; i++ {
-				w.Write([]byte{'\n'})
-				w.Write(<-c.Send)
+				w.Write([]byte{'\n'}) // Разделитель между сообщениями
+				w.Write(<-c.Send)     // Читаем следующее сообщение из канала
 			}
 
+			// Закрываем writer (отправляет данные клиенту)
 			if err := w.Close(); err != nil {
-				return
+				return // Ошибка закрытия - выходим
 			}
 
 		case <-ticker.C:
+			// Время отправить ping сообщение
 			c.WS.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.WS.WriteMessage(websocket.PingMessage, nil); err != nil {
-				return
+				return // Ошибка отправки ping - выходим
 			}
 		}
 	}
 }
 
-// handleEvent processes incoming events from the client.
+// handleEvent обрабатывает входящие события от клиента
+// События могут быть: join_channel, leave_channel, typing_start, typing_stop, message_send, mark_read
+// Параметры:
+//   - event: событие от клиента
 func (c *Connection) handleEvent(event *Event) {
 	switch event.Type {
 	case EventTypeJoinChannel:
+		// Пользователь присоединился к каналу
 		c.handleJoinChannel(event)
 	case EventTypeLeaveChannel:
+		// Пользователь покинул канал
 		c.handleLeaveChannel(event)
 	case EventTypeTypingStart:
+		// Пользователь начал печатать
 		c.handleTypingStart(event)
 	case EventTypeTypingStop:
+		// Пользователь перестал печатать
 		c.handleTypingStop(event)
 	case EventTypeMessageSend:
+		// Пользователь отправил сообщение через WebSocket
 		c.handleMessageSend(event)
 	case EventTypeMarkRead:
+		// Пользователь прочитал сообщения (отметил как прочитанные)
 		c.handleMarkRead(event)
 	default:
+		// Неизвестный тип события - отправляем ошибку клиенту
 		c.SendError("unknown_event_type", "Unknown event type: "+string(event.Type))
 	}
 }
 
-// handleJoinChannel handles when a user joins a channel.
+// handleJoinChannel обрабатывает событие присоединения пользователя к каналу
+// Проверяет, является ли пользователь участником канала, и уведомляет других участников
 func (c *Connection) handleJoinChannel(event *Event) {
+	// Извлекаем channel_id из данных события
 	channelID, ok := event.Data["channel_id"].(float64)
 	if !ok {
 		c.SendError("invalid_channel_id", "Invalid channel ID")
@@ -196,7 +241,8 @@ func (c *Connection) handleJoinChannel(event *Event) {
 
 	chID := int64(channelID)
 
-	// Verify user is a member of the channel
+	// Проверяем, является ли пользователь участником канала
+	// Это важно для безопасности - нельзя присоединиться к каналу, где ты не участник
 	exists, err := c.ORM.ChannelMember.
 		Query().
 		Where(channelmember.ChannelIDEQ(int(chID))).
@@ -212,11 +258,12 @@ func (c *Connection) handleJoinChannel(event *Event) {
 	}
 
 	if !exists {
+		// Пользователь не является участником канала
 		c.SendError("not_member", "You are not a member of this channel")
 		return
 	}
 
-	// Notify other channel members
+	// Уведомляем других участников канала о присоединении
 	response := MemberJoinedEvent(chID, c.UserID)
 	c.Hub.SendToChannel(chID, response.ToJSON())
 
@@ -225,7 +272,8 @@ func (c *Connection) handleJoinChannel(event *Event) {
 	}
 }
 
-// handleLeaveChannel handles when a user leaves a channel.
+// handleLeaveChannel обрабатывает событие выхода пользователя из канала
+// Проверяет права доступа и уведомляет других участников
 func (c *Connection) handleLeaveChannel(event *Event) {
 	channelID, ok := event.Data["channel_id"].(float64)
 	if !ok {
@@ -235,7 +283,7 @@ func (c *Connection) handleLeaveChannel(event *Event) {
 
 	chID := int64(channelID)
 
-	// Verify user is a member of the channel
+	// Проверяем, является ли пользователь участником канала
 	exists, err := c.ORM.ChannelMember.
 		Query().
 		Where(channelmember.ChannelIDEQ(int(chID))).
@@ -255,7 +303,7 @@ func (c *Connection) handleLeaveChannel(event *Event) {
 		return
 	}
 
-	// Notify other channel members
+	// Уведомляем других участников канала о выходе
 	response := &Event{
 		Type: EventTypeMemberLeft,
 		Data: map[string]interface{}{
@@ -270,9 +318,10 @@ func (c *Connection) handleLeaveChannel(event *Event) {
 	}
 }
 
-// handleTypingStart handles typing start events.
+// handleTypingStart обрабатывает событие начала печати пользователя
+// Отправляет индикатор печати другим участникам канала
 func (c *Connection) handleTypingStart(event *Event) {
-	// Broadcast typing indicator to channel members
+	// Транслируем индикатор печати участникам канала
 	channelID, ok := event.Data["channel_id"].(float64)
 	if !ok {
 		c.SendError("invalid_channel_id", "Invalid channel ID")
@@ -281,7 +330,8 @@ func (c *Connection) handleTypingStart(event *Event) {
 
 	chID := int64(channelID)
 
-	// Verify user is a member of the channel
+	// Проверяем, является ли пользователь участником канала
+	// Тихие ошибки - если не участник, просто игнорируем событие
 	exists, err := c.ORM.ChannelMember.
 		Query().
 		Where(channelmember.ChannelIDEQ(int(chID))).
@@ -289,18 +339,20 @@ func (c *Connection) handleTypingStart(event *Event) {
 		Exist(c.Ctx)
 
 	if err != nil || !exists {
-		// Silently ignore typing events for non-members
+		// Тихие ошибки для typing событий - не отправляем ошибку клиенту
 		return
 	}
 
+	// Отправляем событие "пользователь печатает" всем участникам канала
 	response := UserTypingEvent(c.UserID, chID)
 	c.Hub.SendToChannel(chID, response.ToJSON())
 }
 
-// handleTypingStop handles typing stop events.
+// handleTypingStop обрабатывает событие окончания печати пользователя
+// Обычно обрабатывается на клиенте, но мы валидируем права доступа
 func (c *Connection) handleTypingStop(event *Event) {
-	// Typing stop is typically handled client-side
-	// We can implement this if needed for server-side cleanup
+	// Остановка печати обычно обрабатывается на клиенте
+	// Мы можем реализовать это, если нужно для серверной очистки
 	channelID, ok := event.Data["channel_id"].(float64)
 	if !ok {
 		return
@@ -308,8 +360,8 @@ func (c *Connection) handleTypingStop(event *Event) {
 
 	chID := int64(channelID)
 
-	// Verify user is a member of the channel
-	// Typing stop is typically handled client-side, but we validate membership
+	// Проверяем, является ли пользователь участником канала
+	// Тихие ошибки - если не участник, просто игнорируем событие
 	_, err := c.ORM.ChannelMember.
 		Query().
 		Where(channelmember.ChannelIDEQ(int(chID))).
@@ -317,17 +369,19 @@ func (c *Connection) handleTypingStop(event *Event) {
 		Exist(c.Ctx)
 
 	if err != nil {
-		// Silently ignore errors for typing stop
+		// Тихие ошибки для typing stop
 		return
 	}
 
-	// Could send a typing_stop event if needed
-	// For now, we'll just validate and return
+	// Можно отправить typing_stop событие, если нужно
+	// Пока просто валидируем и возвращаем
 }
 
-// handleMessageSend handles message sending via WebSocket.
+// handleMessageSend обрабатывает отправку сообщения через WebSocket
+// Создаёт сообщение в базе данных и транслирует его участникам канала
+// Примечание: Обычно сообщения отправляются через HTTP (MessageCreate), но WebSocket тоже поддерживается
 func (c *Connection) handleMessageSend(event *Event) {
-	// Extract message data
+	// Извлекаем данные сообщения из события
 	channelID, ok := event.Data["channel_id"].(float64)
 	if !ok {
 		c.SendError("invalid_channel_id", "Invalid channel ID")
@@ -342,7 +396,7 @@ func (c *Connection) handleMessageSend(event *Event) {
 
 	chID := int64(channelID)
 
-	// Verify user is a member of the channel
+	// Проверяем, является ли пользователь участником канала
 	exists, err := c.ORM.ChannelMember.
 		Query().
 		Where(channelmember.ChannelIDEQ(int(chID))).
@@ -362,7 +416,7 @@ func (c *Connection) handleMessageSend(event *Event) {
 		return
 	}
 
-	// Create message in database
+	// Создаём сообщение в базе данных
 	msg, err := c.ORM.Message.
 		Create().
 		SetContent(content).
@@ -379,7 +433,7 @@ func (c *Connection) handleMessageSend(event *Event) {
 		return
 	}
 
-	// Broadcast message to channel members
+	// Транслируем сообщение всем участникам канала
 	response := MessageNewEvent(int64(msg.ID), chID, c.UserID, content)
 	c.Hub.SendToChannel(chID, response.ToJSON())
 
@@ -388,7 +442,8 @@ func (c *Connection) handleMessageSend(event *Event) {
 	}
 }
 
-// handleMarkRead handles read receipt events.
+// handleMarkRead обрабатывает событие отметки сообщений как прочитанных
+// Обновляет last_read_at для пользователя в канале
 func (c *Connection) handleMarkRead(event *Event) {
 	channelID, ok := event.Data["channel_id"].(float64)
 	if !ok {
@@ -398,7 +453,8 @@ func (c *Connection) handleMarkRead(event *Event) {
 
 	chID := int64(channelID)
 
-	// Update last_read_at for the user in this channel
+	// Обновляем last_read_at для пользователя в этом канале
+	// Это используется для подсчёта непрочитанных сообщений
 	_, err := c.ORM.ChannelMember.
 		Update().
 		Where(channelmember.ChannelIDEQ(int(chID))).
@@ -419,7 +475,11 @@ func (c *Connection) handleMarkRead(event *Event) {
 	}
 }
 
-// SendError sends an error message to the client.
+// SendError отправляет сообщение об ошибке клиенту
+// Используется для уведомления клиента о проблемах (неверные данные, ошибки БД и т.д.)
+// Параметры:
+//   - code: код ошибки (например, "invalid_channel_id")
+//   - message: текстовое описание ошибки
 func (c *Connection) SendError(code, message string) {
 	response := &Event{
 		Type: EventTypeError,
@@ -431,12 +491,9 @@ func (c *Connection) SendError(code, message string) {
 	c.Send <- response.ToJSON()
 }
 
-// Close closes the connection.
+// Close закрывает соединение
+// Закрывает WebSocket соединение и канал Send
 func (c *Connection) Close() {
 	c.WS.Close()
 	close(c.Send)
 }
-
-// ============================================================================
-// CUSTOM CODE END
-// ============================================================================

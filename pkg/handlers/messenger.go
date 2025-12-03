@@ -41,18 +41,30 @@ import (
 	"github.com/spf13/afero"
 )
 
-// getWorkspaceMemberRole returns the role of a user in a workspace
+// getWorkspaceMemberRole возвращает роль пользователя в workspace
+// Используется для проверки прав доступа (owner, admin, member)
+// Параметры:
+//   - ctx: контекст Echo с запросом
+//   - workspaceID: ID workspace
+//   - userID: ID пользователя
+//
+// Возвращает:
+//   - Role: роль пользователя (owner, admin, member)
+//   - error: ошибка если пользователь не найден или не является членом workspace
 func (h *Messenger) getWorkspaceMemberRole(ctx echo.Context, workspaceID, userID int) (workspacemember.Role, error) {
 	logger := log.Ctx(ctx)
 	logger.Debug("Getting workspace member role", "workspace_id", workspaceID, "user_id", userID)
 
+	// Ищем запись WorkspaceMember в базе данных
+	// WorkspaceMember связывает пользователя с workspace и хранит его роль
 	member, err := h.orm.WorkspaceMember.
-		Query().
-		Where(workspacemember.WorkspaceIDEQ(workspaceID)).
-		Where(workspacemember.UserIDEQ(userID)).
-		Only(ctx.Request().Context())
+		Query().                                           // Начинаем запрос
+		Where(workspacemember.WorkspaceIDEQ(workspaceID)). // Фильтр: workspace_id = workspaceID
+		Where(workspacemember.UserIDEQ(userID)).           // Фильтр: user_id = userID
+		Only(ctx.Request().Context())                      // Only возвращает одну запись или ошибку если не найдено/найдено несколько
 
 	if err != nil {
+		// Если запись не найдена, пользователь не является членом workspace
 		logger.Debug("Failed to get workspace member role", "workspace_id", workspaceID, "user_id", userID, "error", err)
 		return "", err
 	}
@@ -61,21 +73,34 @@ func (h *Messenger) getWorkspaceMemberRole(ctx echo.Context, workspaceID, userID
 	return member.Role, nil
 }
 
-// requireWorkspaceOwnerOrAdmin checks if user is owner or admin of workspace
+// requireWorkspaceOwnerOrAdmin проверяет, является ли пользователь владельцем или администратором workspace
+// Используется для защиты действий, которые могут выполнять только owner или admin
+// Например: удаление workspace, изменение настроек, добавление/удаление членов
+// Параметры:
+//   - ctx: контекст Echo с запросом
+//   - workspaceID: ID workspace
+//   - userID: ID пользователя для проверки
+//
+// Возвращает:
+//   - error: nil если пользователь owner или admin, иначе HTTP 403 Forbidden
 func (h *Messenger) requireWorkspaceOwnerOrAdmin(ctx echo.Context, workspaceID, userID int) error {
 	logger := log.Ctx(ctx)
 	logger.Debug("Checking workspace owner/admin permission", "workspace_id", workspaceID, "user_id", userID)
 
+	// Получаем роль пользователя в workspace
 	role, err := h.getWorkspaceMemberRole(ctx, workspaceID, userID)
 	if err != nil {
 		if ent.IsNotFound(err) {
+			// Пользователь не является членом workspace
 			logger.Warn("Permission check failed: user not a workspace member", "workspace_id", workspaceID, "user_id", userID)
 			return echo.NewHTTPError(http.StatusForbidden, "you are not a member of this workspace")
 		}
+		// Другая ошибка (например, проблема с базой данных)
 		logger.Error("Failed to check workspace role", "error", err, "workspace_id", workspaceID, "user_id", userID)
 		return fail(err, "failed to check workspace role")
 	}
 
+	// Проверяем, что роль - owner или admin
 	if role != workspacemember.RoleOwner && role != workspacemember.RoleAdmin {
 		logger.Warn("Permission check failed: user is not owner or admin", "workspace_id", workspaceID, "user_id", userID, "role", role)
 		return echo.NewHTTPError(http.StatusForbidden, "only owners and admins can perform this action")
@@ -109,12 +134,23 @@ func (h *Messenger) requireWorkspaceOwner(ctx echo.Context, workspaceID, userID 
 	return nil
 }
 
-// getSidebarData loads sidebar data for a workspace
+// getSidebarData загружает данные для боковой панели (sidebar) workspace
+// Sidebar содержит список каналов и прямых сообщений пользователя
+// Параметры:
+//   - ctx: контекст Echo с запросом
+//   - workspaceID: ID workspace для загрузки каналов
+//   - userID: ID пользователя (для фильтрации каналов и DM, где он участник)
+//   - activeChannelID: указатель на ID активного канала (nil если нет активного канала)
+//   - activeDMID: указатель на ID активного DM (nil если нет активного DM)
+//
+// Возвращает:
+//   - SidebarData: структура с данными для sidebar (каналы, DM, активные элементы)
+//   - error: ошибка если не удалось загрузить данные
 func (h *Messenger) getSidebarData(ctx echo.Context, workspaceID int, userID int, activeChannelID *int, activeDMID *int) (messengerComponents.SidebarData, error) {
 	logger := log.Ctx(ctx)
 	logger.Info("=== GET SIDEBAR DATA START ===", "workspace_id", workspaceID, "user_id", userID)
 
-	// Get workspace
+	// Загружаем workspace для получения его имени
 	logger.Info("Loading workspace", "workspace_id", workspaceID)
 	ws, err := h.orm.Workspace.Get(ctx.Request().Context(), workspaceID)
 	if err != nil {
@@ -123,14 +159,15 @@ func (h *Messenger) getSidebarData(ctx echo.Context, workspaceID int, userID int
 	}
 	logger.Info("Workspace loaded", "workspace_id", ws.ID, "workspace_name", ws.Name)
 
-	// Get channels where user is a member
+	// Загружаем каналы, где пользователь является участником
+	// Используем ChannelMember для фильтрации - показываем только каналы, где пользователь есть в членах
 	logger.Info("Loading channels for workspace", "workspace_id", workspaceID, "user_id", userID)
 	channels, err := h.orm.ChannelMember.
-		Query().
-		Where(channelmember.UserIDEQ(userID)).
-		QueryChannel().
-		Where(channel.WorkspaceIDEQ(workspaceID)).
-		All(ctx.Request().Context())
+		Query().                                   // Начинаем запрос с ChannelMember
+		Where(channelmember.UserIDEQ(userID)).     // Фильтр: только записи где user_id = userID
+		QueryChannel().                            // Переходим к связанным каналам (через edge ChannelMember -> Channel)
+		Where(channel.WorkspaceIDEQ(workspaceID)). // Фильтр: только каналы в указанном workspace
+		All(ctx.Request().Context())               // Получаем все найденные каналы
 
 	if err != nil {
 		logger.Error("Failed to load channels", "error", err, "workspace_id", workspaceID, "user_id", userID)
@@ -881,11 +918,23 @@ func (h *Messenger) ChannelList(ctx echo.Context) error {
 	return ctx.JSON(http.StatusOK, channels)
 }
 
-// ChannelView shows a channel page
+// ChannelView отображает страницу канала с сообщениями
+// Это основной handler для просмотра канала - загружает канал, сообщения, sidebar и рендерит страницу
+// Параметры:
+//   - ctx: контекст Echo с запросом (ID канала берётся из URL параметра :id)
+//
+// Возвращает:
+//   - error: ошибка если канал не найден, пользователь не является участником, или ошибка загрузки данных
+//
+// Middleware:
+//   - LoadChannel: загружает канал в контекст
+//   - RequireChannelMember: проверяет, что пользователь является участником канала
 func (h *Messenger) ChannelView(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
 	logger.Info("=== CHANNEL VIEW START ===")
 
+	// Получаем ID канала из URL параметра
+	// Например, для URL /channel/123 параметр "id" будет "123"
 	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
 		logger.Error("Invalid channel ID", "error", err, "id_param", ctx.Param("id"))
@@ -893,24 +942,31 @@ func (h *Messenger) ChannelView(ctx echo.Context) error {
 	}
 	logger.Info("Viewing channel", "channel_id", id)
 
+	// Загружаем канал из базы данных
+	// Middleware LoadChannel уже должен был загрузить канал, но мы загружаем снова для получения всех данных
 	logger.Info("Loading channel", "channel_id", id)
 	ch, err := h.orm.Channel.Get(ctx.Request().Context(), id)
 	if err != nil {
 		if ent.IsNotFound(err) {
+			// Канал не найден в базе данных
 			logger.Warn("Channel not found", "channel_id", id)
 			return echo.NewHTTPError(http.StatusNotFound, "channel not found")
 		}
+		// Другая ошибка (например, проблема с подключением к БД)
 		logger.Error("Failed to get channel", "error", err, "channel_id", id)
 		return fail(err, "failed to get channel")
 	}
 	logger.Info("Channel loaded", "channel_id", ch.ID, "channel_name", ch.Name, "workspace_id", ch.WorkspaceID)
 
+	// Получаем текущего пользователя из контекста
+	// Пользователь был добавлен в контекст middleware RequireAuthentication
 	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
 	logger.Info("User viewing channel", "user_id", user.ID, "user_name", user.Name)
 
-	// Get sidebar data
+	// Загружаем данные для sidebar (боковая панель с каналами и DM)
+	// Sidebar нужен для навигации между каналами и DM
 	logger.Info("Loading sidebar data", "channel_id", id, "workspace_id", ch.WorkspaceID, "user_id", user.ID)
-	activeChannelID := &id
+	activeChannelID := &id // Указываем, что этот канал активен (будет подсвечен в sidebar)
 	sidebarData, err := h.getSidebarData(ctx, ch.WorkspaceID, int(user.ID), activeChannelID, nil)
 	if err != nil {
 		logger.Error("Failed to load sidebar data", "error", err, "channel_id", id, "workspace_id", ch.WorkspaceID, "user_id", user.ID)
@@ -918,42 +974,52 @@ func (h *Messenger) ChannelView(ctx echo.Context) error {
 	}
 	logger.Info("Sidebar data loaded", "channels_count", len(sidebarData.Channels), "dms_count", len(sidebarData.DirectMessages))
 
-	// Get messages (last 50)
+	// Загружаем последние 50 сообщений из канала
+	// Ограничение в 50 сообщений для производительности - при необходимости можно добавить пагинацию
 	logger.Info("Loading messages for channel", "channel_id", id)
 	messages, err := h.orm.Message.
-		Query().
-		Where(message.ChannelIDEQ(id)).
-		Order(ent.Desc(message.FieldCreatedAt)).
-		Limit(50).
-		WithUser().
-		WithAttachments().
-		All(ctx.Request().Context())
+		Query().                                 // Начинаем запрос сообщений
+		Where(message.ChannelIDEQ(id)).          // Фильтр: только сообщения в этом канале
+		Order(ent.Desc(message.FieldCreatedAt)). // Сортируем по дате создания (новые сверху)
+		Limit(50).                               // Ограничиваем 50 сообщениями
+		WithUser().                              // Загружаем связанного пользователя (автора сообщения) через edge
+		WithAttachments().                       // Загружаем вложения через edge
+		All(ctx.Request().Context())             // Получаем все найденные сообщения
 
 	if err != nil {
+		// Ошибка загрузки сообщений (например, проблема с БД)
 		return fail(err, "failed to load messages")
 	}
 
-	// Convert to MessageData
+	// Преобразуем сообщения из Ent структур в MessageData для UI компонентов
+	// MessageData - это упрощённая структура, оптимизированная для отображения
 	messageData := make([]messengerComponents.MessageData, len(messages))
 	for i, msg := range messages {
-		// Get reactions
+		// Загружаем реакции (эмодзи) для каждого сообщения
+		// Реакции хранятся отдельно в таблице Reaction, связаны с Message через edge
 		reactions, err := h.orm.Reaction.
-			Query().
-			Where(reaction.MessageIDEQ(msg.ID)).
-			WithUser().
+			Query().                             // Начинаем запрос реакций
+			Where(reaction.MessageIDEQ(msg.ID)). // Фильтр: только реакции для этого сообщения
+			WithUser().                          // Загружаем пользователей, поставивших реакции
 			All(ctx.Request().Context())
 
 		if err != nil {
+			// Если не удалось загрузить реакции, продолжаем с пустым массивом
+			// Это не критичная ошибка - сообщение всё равно отобразится
 			reactions = []*ent.Reaction{} // Continue with empty reactions
 		}
 
-		// Group reactions by emoji
+		// Группируем реакции по эмодзи
+		// Одна реакция может быть поставлена несколькими пользователями
+		// Мы группируем их, чтобы показать: "👍 3" вместо трёх отдельных кнопок "👍"
 		reactionMap := make(map[string]*messengerComponents.ReactionData)
 		for _, r := range reactions {
 			if existing, ok := reactionMap[r.Emoji]; ok {
+				// Реакция с таким эмодзи уже есть - увеличиваем счётчик
 				existing.Count++
 				existing.UserIDs = append(existing.UserIDs, int64(r.UserID))
 			} else {
+				// Первая реакция с таким эмодзи - создаём новую запись
 				reactionMap[r.Emoji] = &messengerComponents.ReactionData{
 					Emoji:   r.Emoji,
 					Count:   1,
@@ -962,14 +1028,17 @@ func (h *Messenger) ChannelView(ctx echo.Context) error {
 			}
 		}
 
+		// Преобразуем map в slice для передачи в UI
 		reactionData := make([]messengerComponents.ReactionData, 0, len(reactionMap))
 		for _, r := range reactionMap {
 			reactionData = append(reactionData, *r)
 		}
 
-		// Convert attachments
+		// Преобразуем вложения (файлы) в FileAttachmentData
+		// Вложения уже загружены через WithAttachments() выше
 		attachmentData := make([]messengerComponents.FileAttachmentData, len(msg.Edges.Attachments))
 		for j, att := range msg.Edges.Attachments {
+			// Формируем URL для доступа к файлу
 			attachmentURL := fmt.Sprintf("/attachment/%d", att.ID)
 			attachmentData[j] = messengerComponents.FileAttachmentData{
 				ID:       int64(att.ID),
@@ -980,20 +1049,23 @@ func (h *Messenger) ChannelView(ctx echo.Context) error {
 			}
 		}
 
+		// Создаём MessageData для UI компонента
 		messageData[i] = messengerComponents.MessageData{
 			ID:          int64(msg.ID),
 			Content:     msg.Content,
 			UserID:      int64(msg.UserID),
-			UserName:    msg.Edges.User.Name,
+			UserName:    msg.Edges.User.Name, // Имя пользователя из загруженного edge
 			CreatedAt:   msg.CreatedAt,
 			EditedAt:    msg.EditedAt,
 			Reactions:   reactionData,
 			Attachments: attachmentData,
-			ReplyCount:  msg.ReplyCount,
+			ReplyCount:  msg.ReplyCount, // Количество ответов в потоке
 		}
 	}
 
-	// Reverse to show oldest first
+	// Переворачиваем массив, чтобы показать старые сообщения первыми
+	// Сообщения были отсортированы по убыванию (новые сверху), но в чате нужно показывать старые сверху
+	// Это стандартное поведение чатов - новые сообщения появляются внизу
 	for i, j := 0, len(messageData)-1; i < j; i, j = i+1, j-1 {
 		messageData[i], messageData[j] = messageData[j], messageData[i]
 	}
@@ -1537,15 +1609,18 @@ func (h *Messenger) MessageCreate(ctx echo.Context) error {
 	}
 	logger.Info("Message content parsed", "content_length", len(content), "has_files", hasFiles)
 
+	// Создаём сообщение в базе данных
+	// Используем Ent ORM для создания записи в таблице Message
 	msg, err := h.orm.Message.
-		Create().
-		SetContent(content).
-		SetMessageType(message.MessageTypeText).
-		SetChannelID(channelID).
-		SetUserID(int(user.ID)).
-		Save(ctx.Request().Context())
+		Create().                                // Начинаем создание новой записи
+		SetContent(content).                     // Устанавливаем текст сообщения
+		SetMessageType(message.MessageTypeText). // Тип сообщения: text (может быть также file или thread_reply)
+		SetChannelID(channelID).                 // Связываем с каналом
+		SetUserID(int(user.ID)).                 // Устанавливаем автора сообщения
+		Save(ctx.Request().Context())            // Сохраняем в базу данных
 
 	if err != nil {
+		// Ошибка создания сообщения (например, нарушение внешнего ключа, проблема с БД)
 		logger.Error("Failed to create message", "error", err, "channel_id", channelID, "user_id", user.ID)
 		return fail(err, "failed to create message")
 	}
@@ -1586,49 +1661,55 @@ func (h *Messenger) MessageCreate(ctx echo.Context) error {
 					}
 				}
 
-				// Open uploaded file
+				// Открываем загруженный файл для чтения
+				// fileHeader.Open() возвращает io.ReadCloser для чтения содержимого файла
 				src, err := fileHeader.Open()
 				if err != nil {
 					logger.Error("Failed to open uploaded file", "error", err, "filename", fileHeader.Filename)
-					continue
+					continue // Пропускаем этот файл, продолжаем с остальными
 				}
 
-				// Create file path
+				// Создаём путь для сохранения файла
+				// Организуем файлы по каналам: attachments/channel/{channel_id}_{filename}
+				// Это упрощает управление файлами и позволяет легко найти все файлы канала
 				filePath := filepath.Join("attachments", "channel", fmt.Sprintf("%d_%s", channelID, fileHeader.Filename))
-				dst, err := h.files.Create(filePath)
+				dst, err := h.files.Create(filePath) // Создаём файл в файловой системе (afero.Fs)
 				if err != nil {
-					src.Close()
+					src.Close() // Закрываем источник при ошибке
 					logger.Error("Failed to create file", "error", err, "filepath", filePath)
 					continue
 				}
 
-				// Copy file content
+				// Копируем содержимое файла из источника в место назначения
+				// io.Copy читает из src и записывает в dst до EOF
 				if _, err = io.Copy(dst, src); err != nil {
 					src.Close()
-					dst.Close()
+					dst.Close() // Закрываем оба файла при ошибке
 					logger.Error("Failed to save file", "error", err)
 					continue
 				}
-				src.Close()
-				dst.Close()
+				src.Close() // Закрываем источник после успешного копирования
+				dst.Close() // Закрываем файл назначения (сохраняем изменения)
 
-				// Get file info
+				// Получаем информацию о сохранённом файле
+				// Нужно для получения реального размера файла (может отличаться от fileHeader.Size)
 				fileInfo, err := h.files.Stat(filePath)
 				if err != nil {
 					logger.Error("Failed to get file info", "error", err)
 					continue
 				}
 
-				// Create attachment record
+				// Создаём запись о вложении в базе данных
+				// Attachment связывает файл с сообщением и хранит метаданные
 				_, err = h.orm.Attachment.
-					Create().
-					SetFilename(fileHeader.Filename).
-					SetFilepath(filePath).
-					SetFileSize(fileInfo.Size()).
-					SetMimeType(mimeType).
-					SetMessageID(msg.ID).
-					SetUploadedBy(int(user.ID)).
-					Save(ctx.Request().Context())
+					Create().                         // Начинаем создание записи
+					SetFilename(fileHeader.Filename). // Оригинальное имя файла
+					SetFilepath(filePath).            // Путь к файлу в файловой системе
+					SetFileSize(fileInfo.Size()).     // Размер файла в байтах
+					SetMimeType(mimeType).            // MIME тип файла
+					SetMessageID(msg.ID).             // Связываем с сообщением
+					SetUploadedBy(int(user.ID)).      // Кто загрузил файл
+					Save(ctx.Request().Context())     // Сохраняем в БД
 
 				if err != nil {
 					logger.Error("Failed to create attachment record", "error", err)
@@ -2311,11 +2392,19 @@ func (h *Messenger) DMList(ctx echo.Context) error {
 	return ctx.JSON(http.StatusOK, dms)
 }
 
-// DMView shows a direct message conversation
+// DMView отображает страницу прямого сообщения (DM) с историей переписки
+// Прямое сообщение - это приватная переписка между двумя пользователями
+// Параметры:
+//   - ctx: контекст Echo с запросом (ID DM берётся из URL параметра :id)
+//
+// Возвращает:
+//   - error: ошибка если DM не найден, пользователь не является участником, или ошибка загрузки данных
 func (h *Messenger) DMView(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
 	logger.Info("=== DM VIEW START ===")
 
+	// Получаем ID прямого сообщения из URL параметра
+	// Например, для URL /dm/123 параметр "id" будет "123"
 	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
 		logger.Error("Invalid DM ID", "error", err, "id_param", ctx.Param("id"))
@@ -2323,14 +2412,17 @@ func (h *Messenger) DMView(ctx echo.Context) error {
 	}
 	logger.Info("Viewing direct message conversation", "dm_id", id)
 
+	// Получаем текущего пользователя из контекста
 	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
 	logger.Info("User viewing DM", "user_id", user.ID, "user_name", user.Name)
 
-	// Get DM
+	// Загружаем DM из базы данных
+	// DirectMessage содержит двух участников: User1ID и User2ID
 	logger.Info("Loading DM conversation", "dm_id", id)
 	dm, err := h.orm.DirectMessage.Get(ctx.Request().Context(), id)
 	if err != nil {
 		if ent.IsNotFound(err) {
+			// DM не найден в базе данных
 			logger.Warn("Direct message not found", "dm_id", id)
 			return echo.NewHTTPError(http.StatusNotFound, "direct message not found")
 		}
@@ -2339,7 +2431,9 @@ func (h *Messenger) DMView(ctx echo.Context) error {
 	}
 	logger.Info("DM loaded", "dm_id", dm.ID, "user1_id", dm.User1ID, "user2_id", dm.User2ID)
 
-	// Check if user is part of this DM
+	// Проверяем, является ли пользователь участником этого DM
+	// Пользователь должен быть либо User1ID, либо User2ID
+	// Это защита от просмотра чужих приватных переписок
 	if dm.User1ID != int(user.ID) && dm.User2ID != int(user.ID) {
 		logger.Warn("User not authorized to view this DM", "user_id", user.ID, "dm_id", id)
 		return echo.NewHTTPError(http.StatusForbidden, "you are not part of this conversation")
@@ -2613,14 +2707,16 @@ func (h *Messenger) DMMessageCreate(ctx echo.Context) error {
 	}
 	logger.Info("DM message content", "dm_id", id, "content_length", len(content), "has_files", hasFiles)
 
-	// Create message
+	// Создаём сообщение в базе данных
+	// DirectMessageContent - это отдельная таблица для сообщений в DM (не Message)
+	// Это позволяет иметь разные структуры для каналов и DM
 	logger.Info("Creating DM message in database", "dm_id", id, "user_id", user.ID)
 	msg, err := h.orm.DirectMessageContent.
-		Create().
-		SetContent(content).
-		SetDmID(id).
-		SetUserID(int(user.ID)).
-		Save(ctx.Request().Context())
+		Create().                     // Начинаем создание записи
+		SetContent(content).          // Текст сообщения
+		SetDmID(id).                  // Связываем с DM
+		SetUserID(int(user.ID)).      // Устанавливаем автора
+		Save(ctx.Request().Context()) // Сохраняем в БД
 
 	if err != nil {
 		logger.Error("Failed to create DM message", "error", err, "dm_id", id, "user_id", user.ID)
