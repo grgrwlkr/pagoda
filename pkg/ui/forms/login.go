@@ -21,7 +21,6 @@ func (f *Login) Render(r *ui.Request) Node {
 	return Form(
 		ID("login"),
 		Method(http.MethodPost),
-		HxBoost(),
 		Action(r.Path(routenames.LoginSubmit)),
 		FlashMessages(r),
 		InputField(InputFieldParams{

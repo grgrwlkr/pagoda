@@ -1,56 +1,61 @@
 # 🚀 Быстрый старт Slack-клона
 
+Это приложение представляет собой Slack-клон мессенджер, построенный на базе Pagoda Go starter kit.
+
 ## Запуск приложения
 
-### Для разработки Slack-приложения:
-
-```bash
-# Запустить с автоперезагрузкой
-make watch-slack
-```
-
-### Для разработки Pagoda (оригинального приложения):
+### Для разработки:
 
 ```bash
 # Запустить с автоперезагрузкой
 make watch
 ```
 
-## Переключение между приложениями
-
-Проект поддерживает два режима работы:
-
-1. **Pagoda** - оригинальное веб-приложение (по умолчанию)
-2. **Slack** - Slack-клон мессенджер
-
-### Команды для Slack:
+### Для продакшена:
 
 ```bash
-make run-slack      # Запустить Slack приложение
-make watch-slack    # Запустить Slack с автоперезагрузкой
-make build-slack    # Собрать Slack приложение
+# Собрать приложение
+make build
+
+# Запустить собранное приложение
+./tmp/main
 ```
 
-### Команды для Pagoda:
+### Примечание о CSS
+
+Если вы видите предупреждение `Warning: tailwindcss not found, skipping CSS build`, это нормально. CSS файл уже собран и находится в `public/static/main.css`. Если нужно пересобрать CSS, установите tailwindcss:
 
 ```bash
-make run            # Запустить Pagoda приложение
-make watch          # Запустить Pagoda с автоперезагрузкой
-make build          # Собрать Pagoda приложение
+make tailwind-install
+make css
 ```
 
-## Как это работает
+## Структура приложения
 
-- **Точка входа Pagoda**: `cmd/web/main.go` → устанавливает `PAGODA_APP_MODE=pagoda`
-- **Точка входа Slack**: `cmd/slack/main.go` → устанавливает `PAGODA_APP_MODE=slack`
+- **Точка входа**: `cmd/web/main.go`
+- **Handlers**: 
+  - `pkg/handlers/messenger.go` - основной handler для мессенджера
+  - `pkg/handlers/websocket.go` - WebSocket handler для real-time коммуникации
+  - `pkg/handlers/auth.go` - аутентификация
 
-Handlers регистрируются автоматически в зависимости от режима:
-- **Pagoda handlers**: Pages, Auth, Admin, Search, Contact, Files, Cache, Task
-- **Slack handlers**: Messenger, WebSocket
+## Функциональность
 
-Подробнее см. [APP_MODE_SWITCHING.md](./APP_MODE_SWITCHING.md)
+- ✅ Workspaces (рабочие пространства)
+- ✅ Channels (каналы)
+- ✅ Direct Messages (личные сообщения)
+- ✅ Real-time сообщения через WebSocket
+- ✅ Реакции на сообщения
+- ✅ Потоки сообщений (threads)
+- ✅ Вложения файлов
+- ✅ Аутентификация и регистрация
 
----
+## Разработка
 
-**Приложение будет доступно на**: `http://localhost:8000`
-
+Приложение использует:
+- **Go** с Echo framework
+- **Ent ORM** для работы с базой данных
+- **Gomponents** для UI компонентов
+- **HTMX** для динамических обновлений
+- **Alpine.js** для клиентской логики
+- **Tailwind CSS + DaisyUI** для стилизации
+- **WebSocket** для real-time коммуникации

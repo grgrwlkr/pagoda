@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"net/http"
+
 	"github.com/go-playground/validator/v10"
 	"github.com/labstack/echo/v4"
 	"github.com/mikestefanello/pagoda/config"
@@ -31,11 +33,6 @@ type Auth struct {
 
 func init() {
 	Register(new(Auth))
-}
-
-// ShouldRegister returns true if handler should be registered for the given app mode
-func (h *Auth) ShouldRegister(appMode string) bool {
-	return appMode == "pagoda"
 }
 
 func (h *Auth) Init(c *services.Container) error {
@@ -134,26 +131,54 @@ func (h *Auth) LoginPage(ctx echo.Context) error {
 }
 
 func (h *Auth) LoginSubmit(ctx echo.Context) error {
+	logger := log.Ctx(ctx)
+	logger.Info("=== LOGIN SUBMIT START ===")
+	logger.Info("Request method", "method", ctx.Request().Method)
+	logger.Info("Request URL", "url", ctx.Request().URL.String())
+	logger.Info("Content-Type", "content_type", ctx.Request().Header.Get("Content-Type"))
+
 	var input forms.Login
 
 	authFailed := func() error {
+		logger.Warn("Authentication failed")
 		input.SetFieldError("Email", "")
 		input.SetFieldError("Password", "")
 		msg.Error(ctx, "Invalid credentials. Please try again.")
 		return h.LoginPage(ctx)
 	}
 
-	err := form.Submit(ctx, &input)
-
-	switch err.(type) {
-	case nil:
-	case validator.ValidationErrors:
-		return h.LoginPage(ctx)
-	default:
-		return err
+	// Parse form data manually to ensure it works
+	logger.Info("Parsing form data...")
+	if err := ctx.Request().ParseForm(); err != nil {
+		logger.Error("Failed to parse form", "error", err)
+		return fail(err, "failed to parse form")
 	}
+	logger.Info("Form parsed successfully")
+
+	// Get form values
+	input.Email = ctx.Request().FormValue("email")
+	input.Password = ctx.Request().FormValue("password")
+	logger.Info("Form values extracted", "email", input.Email, "password_length", len(input.Password))
+
+	// Validate
+	logger.Info("Validating form...")
+	validate := validator.New()
+	if err := validate.Struct(&input); err != nil {
+		logger.Warn("Form validation failed", "error", err)
+		if validationErrors, ok := err.(validator.ValidationErrors); ok {
+			for _, validationError := range validationErrors {
+				logger.Info("Validation error", "field", validationError.Field(), "error", validationError.Error())
+				input.SetFieldError(validationError.Field(), validationError.Error())
+			}
+			return h.LoginPage(ctx)
+		}
+		logger.Error("Validation error (not ValidationErrors)", "error", err)
+		return fail(err, "validation error")
+	}
+	logger.Info("Form validation passed")
 
 	// Attempt to load the user.
+	logger.Info("Searching for user", "email", strings.ToLower(input.Email))
 	u, err := h.orm.User.
 		Query().
 		Where(user.Email(strings.ToLower(input.Email))).
@@ -161,29 +186,54 @@ func (h *Auth) LoginSubmit(ctx echo.Context) error {
 
 	switch err.(type) {
 	case *ent.NotFoundError:
-		return authFailed()
+		// User not found - show explicit error message
+		logger.Warn("User not found", "email", input.Email)
+		input.SetFieldError("Email", "No account found with this email address.")
+		msg.Error(ctx, "No account found with this email address. Please check your email or register a new account.")
+		return h.LoginPage(ctx)
 	case nil:
+		logger.Info("User found", "user_id", u.ID, "user_name", u.Name, "user_email", u.Email)
 	default:
+		logger.Error("Error querying user", "error", err)
 		return fail(err, "error querying user during login")
 	}
 
 	// Check if the password is correct.
+	logger.Info("Checking password...")
 	err = h.auth.CheckPassword(input.Password, u.Password)
 	if err != nil {
+		logger.Warn("Password check failed", "error", err)
 		return authFailed()
 	}
+	logger.Info("Password check passed")
 
 	// Log the user in.
+	logger.Info("Logging in user", "user_id", u.ID)
 	err = h.auth.Login(ctx, u.ID)
 	if err != nil {
+		logger.Error("Failed to log in user", "error", err, "user_id", u.ID)
 		return fail(err, "unable to log in user")
 	}
+	logger.Info("User logged in successfully", "user_id", u.ID)
 
 	msg.Success(ctx, fmt.Sprintf("Welcome back, %s. You are now logged in.", u.Name))
+	logger.Info("Success message set")
 
-	return redirect.New(ctx).
-		Route(routenames.Home).
-		Go()
+	// Redirect to root which will redirect to workspace
+	redirectURL := "/"
+	logger.Info("Preparing redirect", "redirect_url", redirectURL)
+	logger.Info("Response status before redirect", "status", ctx.Response().Status)
+	logger.Info("Response headers before redirect", "headers", ctx.Response().Header())
+
+	err = ctx.Redirect(http.StatusFound, redirectURL)
+	if err != nil {
+		logger.Error("Redirect failed", "error", err)
+		return err
+	}
+
+	logger.Info("Redirect executed", "status", ctx.Response().Status)
+	logger.Info("=== LOGIN SUBMIT END ===")
+	return err
 }
 
 func (h *Auth) Logout(ctx echo.Context) error {
@@ -215,6 +265,7 @@ func (h *Auth) RegisterSubmit(ctx echo.Context) error {
 	}
 
 	// Attempt creating the user.
+	// Note: Password is automatically hashed by the User hook in ent/schema/user.go
 	u, err := h.orm.User.
 		Create().
 		SetName(input.Name).
@@ -255,9 +306,8 @@ func (h *Auth) RegisterSubmit(ctx echo.Context) error {
 	// Send the verification email.
 	h.sendVerificationEmail(ctx, u)
 
-	return redirect.New(ctx).
-		Route(routenames.Home).
-		Go()
+	// Redirect to root which will redirect to workspace
+	return ctx.Redirect(http.StatusFound, "/")
 }
 
 func (h *Auth) sendVerificationEmail(ctx echo.Context, usr *ent.User) {

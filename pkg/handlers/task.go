@@ -21,14 +21,7 @@ type Task struct {
 	tasks *backlite.Client
 }
 
-func init() {
-	Register(new(Task))
-}
-
-// ShouldRegister returns true if handler should be registered for the given app mode
-func (h *Task) ShouldRegister(appMode string) bool {
-	return appMode == "pagoda"
-}
+// Task handler removed - this is now a Slack-only application
 
 func (h *Task) Init(c *services.Container) error {
 	h.tasks = c.Tasks

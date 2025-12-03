@@ -16,14 +16,7 @@ type Cache struct {
 	cache *services.CacheClient
 }
 
-func init() {
-	Register(new(Cache))
-}
-
-// ShouldRegister returns true if handler should be registered for the given app mode
-func (h *Cache) ShouldRegister(appMode string) bool {
-	return appMode == "pagoda"
-}
+// Cache handler removed - this is now a Slack-only application
 
 func (h *Cache) Init(c *services.Container) error {
 	h.cache = c.Cache

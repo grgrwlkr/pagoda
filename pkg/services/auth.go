@@ -13,6 +13,7 @@ import (
 	"github.com/mikestefanello/pagoda/ent/passwordtoken"
 	"github.com/mikestefanello/pagoda/ent/user"
 	"github.com/mikestefanello/pagoda/pkg/context"
+	"github.com/mikestefanello/pagoda/pkg/log"
 	"github.com/mikestefanello/pagoda/pkg/session"
 
 	"github.com/labstack/echo/v4"
@@ -62,13 +63,32 @@ func NewAuthClient(cfg *config.Config, orm *ent.Client) *AuthClient {
 
 // Login logs in a user of a given ID
 func (c *AuthClient) Login(ctx echo.Context, userID int) error {
+	logger := log.Ctx(ctx)
+	logger.Info("=== AUTH SERVICE LOGIN START ===")
+	logger.Info("Logging in user", "user_id", userID)
+
 	sess, err := session.Get(ctx, authSessionName)
 	if err != nil {
+		logger.Error("Failed to get session", "error", err)
 		return err
 	}
+	logger.Info("Session retrieved", "session_name", authSessionName)
+
 	sess.Values[authSessionKeyUserID] = userID
 	sess.Values[authSessionKeyAuthenticated] = true
-	return sess.Save(ctx.Request(), ctx.Response())
+	logger.Info("Session values set", "user_id", userID, "authenticated", true)
+
+	err = sess.Save(ctx.Request(), ctx.Response())
+	if err != nil {
+		logger.Error("Failed to save session", "error", err)
+		return err
+	}
+
+	logger.Info("Session saved successfully")
+	logger.Info("Response status", "status", ctx.Response().Status)
+	logger.Info("Response headers", "headers", ctx.Response().Header())
+	logger.Info("=== AUTH SERVICE LOGIN END ===")
+	return nil
 }
 
 // Logout logs the requesting user out
@@ -83,27 +103,65 @@ func (c *AuthClient) Logout(ctx echo.Context) error {
 
 // GetAuthenticatedUserID returns the authenticated user's ID, if the user is logged in
 func (c *AuthClient) GetAuthenticatedUserID(ctx echo.Context) (int, error) {
+	logger := log.Ctx(ctx)
+	logger.Info("=== GET AUTHENTICATED USER ID START ===")
+
 	sess, err := session.Get(ctx, authSessionName)
 	if err != nil {
+		logger.Error("Failed to get session", "error", err, "session_name", authSessionName)
 		return 0, err
 	}
 
+	logger.Info("Session retrieved", "session_name", authSessionName)
+	logger.Info("Session values", "values", sess.Values)
+	logger.Info("Session authenticated key", "value", sess.Values[authSessionKeyAuthenticated])
+	logger.Info("Session user ID key", "value", sess.Values[authSessionKeyUserID])
+
 	if sess.Values[authSessionKeyAuthenticated] == true {
-		return sess.Values[authSessionKeyUserID].(int), nil
+		userID := sess.Values[authSessionKeyUserID].(int)
+		logger.Info("User authenticated", "user_id", userID)
+		logger.Info("=== GET AUTHENTICATED USER ID END ===")
+		return userID, nil
 	}
 
+	logger.Info("User not authenticated in session")
+	logger.Info("=== GET AUTHENTICATED USER ID END ===")
 	return 0, NotAuthenticatedError{}
 }
 
 // GetAuthenticatedUser returns the authenticated user if the user is logged in
 func (c *AuthClient) GetAuthenticatedUser(ctx echo.Context) (*ent.User, error) {
-	if userID, err := c.GetAuthenticatedUserID(ctx); err == nil {
-		return c.orm.User.Query().
+	logger := log.Ctx(ctx)
+	logger.Info("=== GET AUTHENTICATED USER START ===")
+
+	userID, err := c.GetAuthenticatedUserID(ctx)
+	if err == nil {
+		logger.Info("User ID retrieved, loading user from database", "user_id", userID)
+		u, dbErr := c.orm.User.Query().
 			Where(user.ID(userID)).
 			Only(ctx.Request().Context())
+		if dbErr != nil {
+			logger.Error("Failed to load user from database", "error", dbErr, "user_id", userID)
+			logger.Info("=== GET AUTHENTICATED USER END ===")
+			return nil, dbErr
+		}
+		logger.Info("User loaded from database", "user_id", u.ID, "user_email", u.Email)
+		logger.Info("=== GET AUTHENTICATED USER END ===")
+		return u, nil
 	}
 
+	logger.Info("GetAuthenticatedUserID failed", "error", err)
+	logger.Info("=== GET AUTHENTICATED USER END ===")
 	return nil, NotAuthenticatedError{}
+}
+
+// HashPassword hashes a password using bcrypt
+func (c *AuthClient) HashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
 }
 
 // CheckPassword check if a given password matches a given hash

@@ -5,7 +5,6 @@ tmp_dir = "tmp"
 [build]
   args_bin = []
   entrypoint = ["./tmp/main"]
-  # Use build-slack for Slack app, build for Pagoda
   cmd = "make build"
   delay = 1000
   exclude_dir = ["assets", "tmp", "vendor", "testdata", "uploads", "dbs", "public"]

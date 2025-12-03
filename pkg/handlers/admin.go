@@ -27,14 +27,7 @@ type Admin struct {
 	backlite *ui.Handler
 }
 
-func init() {
-	Register(new(Admin))
-}
-
-// ShouldRegister returns true if handler should be registered for the given app mode
-func (h *Admin) ShouldRegister(appMode string) bool {
-	return appMode == "pagoda"
-}
+// Admin handler removed - this is now a Slack-only application
 
 func (h *Admin) Init(c *services.Container) error {
 	var err error

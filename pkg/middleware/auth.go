@@ -19,20 +19,36 @@ import (
 func LoadAuthenticatedUser(authClient *services.AuthClient) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			logger := log.Ctx(c)
+			logger.Info("=== LOAD AUTHENTICATED USER MIDDLEWARE START ===")
+			logger.Info("Request URL", "url", c.Request().URL.String())
+			logger.Info("Request method", "method", c.Request().Method)
+
+			// Log cookies
+			cookies := c.Request().Cookies()
+			logger.Info("Request cookies", "count", len(cookies))
+			for _, cookie := range cookies {
+				logger.Info("Cookie", "name", cookie.Name, "value_length", len(cookie.Value), "domain", cookie.Domain, "path", cookie.Path, "secure", cookie.Secure, "http_only", cookie.HttpOnly)
+			}
+
 			u, err := authClient.GetAuthenticatedUser(c)
 			switch err.(type) {
 			case *ent.NotFoundError:
-				log.Ctx(c).Warn("auth user not found")
+				logger.Warn("auth user not found", "error", err)
 			case services.NotAuthenticatedError:
+				logger.Info("User not authenticated", "error", err)
 			case nil:
+				logger.Info("User authenticated and loaded", "user_id", u.ID, "user_email", u.Email, "user_name", u.Name)
 				c.Set(context.AuthenticatedUserKey, u)
 			default:
+				logger.Error("Error querying for authenticated user", "error", err)
 				return echo.NewHTTPError(
 					http.StatusInternalServerError,
 					fmt.Sprintf("error querying for authenticated user: %v", err),
 				)
 			}
 
+			logger.Info("=== LOAD AUTHENTICATED USER MIDDLEWARE END ===")
 			return next(c)
 		}
 	}

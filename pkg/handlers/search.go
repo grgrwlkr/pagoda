@@ -13,14 +13,7 @@ import (
 
 type Search struct{}
 
-func init() {
-	Register(new(Search))
-}
-
-// ShouldRegister returns true if handler should be registered for the given app mode
-func (h *Search) ShouldRegister(appMode string) bool {
-	return appMode == "pagoda"
-}
+// Search handler removed - this is now a Slack-only application
 
 func (h *Search) Init(c *services.Container) error {
 	return nil

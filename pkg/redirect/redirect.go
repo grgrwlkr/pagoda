@@ -79,7 +79,10 @@ func (r *Redirect) Go() error {
 		dest = fmt.Sprintf("%s?%s", dest, r.query.Encode())
 	}
 
-	if htmx.GetRequest(r.ctx).Boosted {
+	htmxReq := htmx.GetRequest(r.ctx)
+	// If HTMX request (boosted or regular), use HX-Redirect header
+	// Check both Enabled (HX-Request header) and Boosted (HX-Boosted header)
+	if htmxReq.Enabled || htmxReq.Boosted {
 		htmx.Response{
 			Redirect: dest,
 		}.Apply(r.ctx)

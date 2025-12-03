@@ -18,14 +18,7 @@ type Files struct {
 	files afero.Fs
 }
 
-func init() {
-	Register(new(Files))
-}
-
-// ShouldRegister returns true if handler should be registered for the given app mode
-func (h *Files) ShouldRegister(appMode string) bool {
-	return appMode == "pagoda"
-}
+// Files handler removed - this is now a Slack-only application
 
 func (h *Files) Init(c *services.Container) error {
 	h.files = c.Files

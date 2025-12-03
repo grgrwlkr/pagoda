@@ -1,14 +1,15 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo/v4"
 	echomw "github.com/labstack/echo/v4/middleware"
 	"github.com/mikestefanello/pagoda/pkg/context"
+	"github.com/mikestefanello/pagoda/pkg/log"
 	"github.com/mikestefanello/pagoda/pkg/middleware"
 	"github.com/mikestefanello/pagoda/pkg/services"
 	files "github.com/mikestefanello/pagoda/public"
@@ -53,6 +54,9 @@ func BuildRouter(c *services.Container) error {
 	cookieStore := sessions.NewCookieStore([]byte(c.Config.App.EncryptionKey))
 	cookieStore.Options.HttpOnly = true
 	cookieStore.Options.SameSite = http.SameSiteStrictMode
+	// Only use Secure cookies in production (when TLS is enabled)
+	// In development (localhost), Secure cookies won't work over HTTP
+	cookieStore.Options.Secure = c.Config.HTTP.TLS.Enabled
 
 	g.Use(
 		echomw.RemoveTrailingSlashWithConfig(echomw.TrailingSlashConfig{
@@ -73,6 +77,7 @@ func BuildRouter(c *services.Container) error {
 		echomw.CSRFWithConfig(echomw.CSRFConfig{
 			TokenLookup:    "form:csrf",
 			CookieHTTPOnly: true,
+			CookieSecure:   c.Config.HTTP.TLS.Enabled, // Only use Secure in production
 			CookieSameSite: http.SameSiteStrictMode,
 			ContextKey:     context.CSRFKey,
 		}),
@@ -81,27 +86,16 @@ func BuildRouter(c *services.Container) error {
 	// Error handler.
 	c.Web.HTTPErrorHandler = new(Error).Page
 
-	// Get app mode from environment (default: pagoda)
-	appMode := os.Getenv("PAGODA_APP_MODE")
-	if appMode == "" {
-		appMode = "pagoda"
-	}
+	// Initialize and register all handlers
+	// This is now a Slack application, so we register all handlers
+	logger := log.Default()
+	logger.Info("Building router for Slack application")
 
-	// Initialize and register handlers based on app mode
 	for _, h := range GetHandlers() {
-		// Check if handler should be registered for current mode
-		// If handler implements ModeHandler, use ShouldRegister
-		// Otherwise, register always (for backward compatibility)
-		if modeHandler, ok := h.(ModeHandler); ok {
-			if !modeHandler.ShouldRegister(appMode) {
-				continue
-			}
-		}
-
 		if err := h.Init(c); err != nil {
 			return err
 		}
-
+		logger.Info(fmt.Sprintf("Registering handler: %T", h))
 		h.Routes(g)
 	}
 

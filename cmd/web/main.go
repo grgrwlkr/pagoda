@@ -10,14 +10,14 @@ import (
 	"os/signal"
 
 	"github.com/mikestefanello/pagoda/pkg/handlers"
+	_ "github.com/mikestefanello/pagoda/pkg/handlers" // Import to register handlers
 	"github.com/mikestefanello/pagoda/pkg/log"
 	"github.com/mikestefanello/pagoda/pkg/services"
 	"github.com/mikestefanello/pagoda/pkg/tasks"
 )
 
 func main() {
-	// Set environment variable to indicate we're running Pagoda app
-	os.Setenv("PAGODA_APP_MODE", "pagoda")
+	// This is now a Slack application built on Pagoda framework
 
 	// Start a new container.
 	c := services.NewContainer()

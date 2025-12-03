@@ -236,6 +236,7 @@ func CSRF(r *ui.Request) Node {
 
 func FormButton(color Color, label string) Node {
 	return Button(
+		Type("submit"),
 		Class("btn "+buttonColor(color)),
 		Text(label),
 	)

@@ -19,14 +19,6 @@ type Handler interface {
 	Init(*services.Container) error
 }
 
-// ModeHandler allows handlers to specify which app mode they should be registered for
-type ModeHandler interface {
-	Handler
-	// ShouldRegister returns true if the handler should be registered for the given app mode
-	// App modes: "pagoda" (default), "slack"
-	ShouldRegister(appMode string) bool
-}
-
 // Register registers a handler
 func Register(h Handler) {
 	handlers = append(handlers, h)

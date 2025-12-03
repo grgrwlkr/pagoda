@@ -16,14 +16,7 @@ type Contact struct {
 	mail *services.MailClient
 }
 
-func init() {
-	Register(new(Contact))
-}
-
-// ShouldRegister returns true if handler should be registered for the given app mode
-func (h *Contact) ShouldRegister(appMode string) bool {
-	return appMode == "pagoda"
-}
+// Contact handler removed - this is now a Slack-only application
 
 func (h *Contact) Init(c *services.Container) error {
 	h.mail = c.Mail

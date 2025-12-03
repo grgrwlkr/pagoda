@@ -13,14 +13,7 @@ import (
 
 type Pages struct{}
 
-func init() {
-	Register(new(Pages))
-}
-
-// ShouldRegister returns true if handler should be registered for the given app mode
-func (h *Pages) ShouldRegister(appMode string) bool {
-	return appMode == "pagoda"
-}
+// Pages handler removed - this is now a Slack-only application
 
 func (h *Pages) Init(c *services.Container) error {
 	return nil
