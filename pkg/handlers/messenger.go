@@ -149,7 +149,6 @@ func (h *Messenger) requireWorkspaceOwner(ctx echo.Context, workspaceID, userID 
 //   - error: ошибка если не удалось загрузить данные
 func (h *Messenger) getSidebarData(ctx echo.Context, workspaceID int, userID int, activeChannelID *int, activeDMID *int) (messengerComponents.SidebarData, error) {
 	logger := log.Ctx(ctx)
-	logger.Info("=== GET SIDEBAR DATA START ===", "workspace_id", workspaceID, "user_id", userID)
 
 	// Загружаем workspace для получения его имени
 	logger.Info("Loading workspace", "workspace_id", workspaceID)
@@ -246,7 +245,6 @@ func (h *Messenger) getSidebarData(ctx echo.Context, workspaceID int, userID int
 	}
 
 	logger.Info("Sidebar data prepared", "channels_count", len(channelData), "dms_count", len(dmData), "active_channel_id", activeChID, "active_dm_id", activeDMID64)
-	logger.Info("=== GET SIDEBAR DATA END ===")
 	return messengerComponents.SidebarData{
 		WorkspaceID:     int64(workspaceID),
 		WorkspaceName:   ws.Name,
@@ -341,8 +339,6 @@ func (h *Messenger) Routes(g *echo.Group) {
 // RootRedirect redirects to the first workspace or workspace list
 func (h *Messenger) RootRedirect(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== ROOT REDIRECT START ===")
-	logger.Info("Request URL", "url", ctx.Request().URL.String())
 	logger.Info("Request method", "method", ctx.Request().Method)
 
 	// Check if user is authenticated
@@ -377,13 +373,11 @@ func (h *Messenger) RootRedirect(ctx echo.Context) error {
 	if len(workspaces) == 0 {
 		// No workspaces - show workspace creation page
 		logger.Info("No workspaces found, showing workspace creation page")
-		logger.Info("=== ROOT REDIRECT END ===")
 		return h.WorkspaceCreatePage(ctx)
 	} else if len(workspaces) == 1 {
 		// One workspace - redirect to it automatically
 		redirectURL := ctx.Echo().Reverse(routenames.MessengerWorkspaceView, workspaces[0].ID)
 		logger.Info("Redirecting to first workspace", "workspace_id", workspaces[0].ID, "redirect_url", redirectURL)
-		logger.Info("=== ROOT REDIRECT END ===")
 		return redirect.New(ctx).
 			Route(routenames.MessengerWorkspaceView).
 			Params(workspaces[0].ID).
@@ -391,7 +385,6 @@ func (h *Messenger) RootRedirect(ctx echo.Context) error {
 	} else {
 		// Multiple workspaces - show selection page
 		logger.Info("Multiple workspaces found, showing selection page", "count", len(workspaces))
-		logger.Info("=== ROOT REDIRECT END ===")
 		return h.WorkspaceSelectPage(ctx)
 	}
 }
@@ -402,7 +395,6 @@ func (h *Messenger) RootRedirect(ctx echo.Context) error {
 // If user has multiple workspaces, shows selection page
 func (h *Messenger) WorkspaceList(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== WORKSPACE LIST START ===")
 
 	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
 	logger.Info("Loading workspaces for user", "user_id", user.ID, "user_email", user.Email)
@@ -425,12 +417,10 @@ func (h *Messenger) WorkspaceList(ctx echo.Context) error {
 	if len(workspaces) == 0 {
 		// No workspaces - redirect to creation page
 		logger.Info("No workspaces found, redirecting to creation page")
-		logger.Info("=== WORKSPACE LIST END ===")
 		return h.WorkspaceCreatePage(ctx)
 	} else if len(workspaces) == 1 {
 		// One workspace - redirect to it
 		logger.Info("One workspace found, redirecting to it", "workspace_id", workspaces[0].ID)
-		logger.Info("=== WORKSPACE LIST END ===")
 		return redirect.New(ctx).
 			Route(routenames.MessengerWorkspaceView).
 			Params(workspaces[0].ID).
@@ -438,7 +428,6 @@ func (h *Messenger) WorkspaceList(ctx echo.Context) error {
 	} else {
 		// Multiple workspaces - show selection page
 		logger.Info("Multiple workspaces found, showing selection page", "count", len(workspaces))
-		logger.Info("=== WORKSPACE LIST END ===")
 		return h.WorkspaceSelectPage(ctx)
 	}
 }
@@ -446,7 +435,6 @@ func (h *Messenger) WorkspaceList(ctx echo.Context) error {
 // WorkspaceCreatePage renders a page for creating the first workspace
 func (h *Messenger) WorkspaceCreatePage(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== WORKSPACE CREATE PAGE START ===")
 
 	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
 	logger.Info("Rendering workspace creation page", "user_id", user.ID)
@@ -458,14 +446,12 @@ func (h *Messenger) WorkspaceCreatePage(ctx echo.Context) error {
 	}
 	ctx.Set(context.MessengerSidebarKey, sidebarData)
 
-	logger.Info("=== WORKSPACE CREATE PAGE END ===")
 	return messengerPages.WorkspaceCreate(ctx)
 }
 
 // WorkspaceSelectPage renders a page for selecting a workspace when user has multiple workspaces
 func (h *Messenger) WorkspaceSelectPage(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== WORKSPACE SELECT PAGE START ===")
 
 	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
 	logger.Info("Loading workspaces for selection", "user_id", user.ID)
@@ -491,14 +477,12 @@ func (h *Messenger) WorkspaceSelectPage(ctx echo.Context) error {
 	}
 	ctx.Set(context.MessengerSidebarKey, sidebarData)
 
-	logger.Info("=== WORKSPACE SELECT PAGE END ===")
 	return messengerPages.WorkspaceSelect(ctx, workspaces)
 }
 
 // WorkspaceView shows a workspace and redirects to the workspace page
 func (h *Messenger) WorkspaceView(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== WORKSPACE VIEW START ===")
 
 	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
@@ -530,14 +514,12 @@ func (h *Messenger) WorkspaceView(ctx echo.Context) error {
 
 	// Workspace membership is checked by RequireWorkspaceMember middleware
 	// Render workspace page
-	logger.Info("=== WORKSPACE VIEW END ===")
 	return messengerPages.Workspace(ctx)
 }
 
 // WorkspaceCreate creates a new workspace
 func (h *Messenger) WorkspaceCreate(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== WORKSPACE CREATE START ===")
 
 	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
 	logger.Info("Creating workspace", "user_id", user.ID, "user_email", user.Email)
@@ -610,11 +592,9 @@ func (h *Messenger) WorkspaceCreate(ctx echo.Context) error {
 		redirectURL := ctx.Echo().Reverse(routenames.MessengerWorkspaceView, workspaceEntity.ID)
 		logger.Info("HTMX request detected, redirecting", "redirect_url", redirectURL, "workspace_id", workspaceEntity.ID)
 		htmx.Response{Redirect: redirectURL}.Apply(ctx)
-		logger.Info("=== WORKSPACE CREATE END ===")
 		return ctx.NoContent(http.StatusOK)
 	}
 
-	logger.Info("=== WORKSPACE CREATE END ===")
 	return ctx.JSON(http.StatusCreated, workspaceEntity)
 }
 
@@ -647,7 +627,6 @@ func generateSlug(name string) string {
 // WorkspaceUpdate updates a workspace
 func (h *Messenger) WorkspaceUpdate(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== WORKSPACE UPDATE START ===")
 
 	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
@@ -737,14 +716,12 @@ func (h *Messenger) WorkspaceUpdate(ctx echo.Context) error {
 		h.hub.SendToWorkspace(ctx.Request().Context(), int64(id), event.ToJSON())
 	}
 
-	logger.Info("=== WORKSPACE UPDATE END ===")
 	return ctx.JSON(http.StatusOK, workspaceEntity)
 }
 
 // WorkspaceDelete deletes a workspace
 func (h *Messenger) WorkspaceDelete(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== WORKSPACE DELETE START ===")
 
 	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
@@ -770,7 +747,6 @@ func (h *Messenger) WorkspaceDelete(ctx echo.Context) error {
 		return fail(err, "failed to delete workspace")
 	}
 	logger.Info("Workspace deleted successfully", "workspace_id", id)
-	logger.Info("=== WORKSPACE DELETE END ===")
 
 	return ctx.NoContent(http.StatusNoContent)
 }
@@ -778,7 +754,6 @@ func (h *Messenger) WorkspaceDelete(ctx echo.Context) error {
 // WorkspaceAddMember adds a member to a workspace
 func (h *Messenger) WorkspaceAddMember(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== WORKSPACE ADD MEMBER START ===")
 
 	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
@@ -867,7 +842,6 @@ func (h *Messenger) WorkspaceAddMember(ctx echo.Context) error {
 		return fail(err, "failed to add workspace member")
 	}
 	logger.Info("Member added to workspace", "workspace_id", id, "member_id", member.ID, "target_user_id", targetUserID, "role", role)
-	logger.Info("=== WORKSPACE ADD MEMBER END ===")
 
 	return ctx.JSON(http.StatusCreated, member)
 }
@@ -875,7 +849,6 @@ func (h *Messenger) WorkspaceAddMember(ctx echo.Context) error {
 // WorkspaceRemoveMember removes a member from a workspace
 func (h *Messenger) WorkspaceRemoveMember(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== WORKSPACE REMOVE MEMBER START ===")
 
 	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
@@ -942,7 +915,6 @@ func (h *Messenger) WorkspaceRemoveMember(ctx echo.Context) error {
 		return fail(err, "failed to remove workspace member")
 	}
 	logger.Info("Member removed from workspace", "workspace_id", id, "target_user_id", targetUserID)
-	logger.Info("=== WORKSPACE REMOVE MEMBER END ===")
 
 	return ctx.NoContent(http.StatusNoContent)
 }
@@ -988,7 +960,6 @@ func (h *Messenger) ChannelList(ctx echo.Context) error {
 //   - RequireChannelMember: проверяет, что пользователь является участником канала
 func (h *Messenger) ChannelView(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== CHANNEL VIEW START ===")
 
 	// Получаем ID канала из URL параметра
 	// Например, для URL /channel/123 параметр "id" будет "123"
@@ -1132,14 +1103,12 @@ func (h *Messenger) ChannelView(ctx echo.Context) error {
 
 	// Channel membership is checked by RequireChannelMember middleware
 	logger.Info("Rendering channel page", "channel_id", ch.ID, "channel_name", ch.Name, "messages_count", len(messageData))
-	logger.Info("=== CHANNEL VIEW END ===")
 	return messengerPages.Channel(ctx, int64(ch.ID), ch.Name, messageData)
 }
 
 // ChannelCreate creates a new channel
 func (h *Messenger) ChannelCreate(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== CHANNEL CREATE START ===")
 
 	workspaceID, err := strconv.Atoi(ctx.Param("workspace_id"))
 	if err != nil {
@@ -1239,19 +1208,16 @@ func (h *Messenger) ChannelCreate(ctx echo.Context) error {
 			logger.Warn("Echo instance is nil, using manual URL", "redirect_url", redirectURL, "channel_id", ch.ID)
 			htmx.Response{Redirect: redirectURL}.Apply(ctx)
 		}
-		logger.Info("=== CHANNEL CREATE END ===")
 		return ctx.NoContent(http.StatusOK)
 	}
 
 	logger.Info("Non-HTMX request, returning JSON response", "channel_id", ch.ID)
-	logger.Info("=== CHANNEL CREATE END ===")
 	return ctx.JSON(http.StatusCreated, ch)
 }
 
 // ChannelCreateForm renders the channel creation form modal
 func (h *Messenger) ChannelCreateForm(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== CHANNEL CREATE FORM START ===")
 
 	workspaceIDParam := ctx.Param("workspace_id")
 	logger.Info("Parsing workspace ID from URL", "workspace_id_param", workspaceIDParam, "all_params", ctx.ParamNames())
@@ -1361,14 +1327,12 @@ func (h *Messenger) ChannelCreateForm(ctx echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to render modal")
 	}
 
-	logger.Info("=== CHANNEL CREATE FORM END ===")
 	return ctx.HTML(http.StatusOK, htmlContent)
 }
 
 // ChannelUpdate updates a channel
 func (h *Messenger) ChannelUpdate(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== CHANNEL UPDATE START ===")
 
 	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
@@ -1474,14 +1438,12 @@ func (h *Messenger) ChannelUpdate(ctx echo.Context) error {
 		h.hub.SendToChannel(int64(id), event.ToJSON())
 	}
 
-	logger.Info("=== CHANNEL UPDATE END ===")
 	return ctx.JSON(http.StatusOK, ch)
 }
 
 // ChannelDelete deletes a channel
 func (h *Messenger) ChannelDelete(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== CHANNEL DELETE START ===")
 
 	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
@@ -1541,7 +1503,6 @@ func (h *Messenger) ChannelDelete(ctx echo.Context) error {
 		h.hub.SendToWorkspace(ctx.Request().Context(), int64(ch.WorkspaceID), event.ToJSON())
 	}
 
-	logger.Info("=== CHANNEL DELETE END ===")
 	return ctx.NoContent(http.StatusNoContent)
 }
 
@@ -1750,7 +1711,6 @@ func (h *Messenger) ChannelMessages(ctx echo.Context) error {
 // MessageCreate creates a new message in a channel
 func (h *Messenger) MessageCreate(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== MESSAGE CREATE START ===")
 
 	channelID, err := strconv.Atoi(ctx.Param("channel_id"))
 	if err != nil {
@@ -1941,12 +1901,10 @@ func (h *Messenger) MessageCreate(ctx echo.Context) error {
 			logger.Error("Failed to render message item", "error", err)
 			return fail(err, "failed to render message")
 		}
-		logger.Info("=== MESSAGE CREATE END ===")
 		return ctx.HTML(http.StatusOK, buf.String())
 	}
 
 	logger.Info("Non-HTMX request, returning JSON", "message_id", msg.ID)
-	logger.Info("=== MESSAGE CREATE END ===")
 	return ctx.JSON(http.StatusCreated, msg)
 }
 
@@ -2008,7 +1966,6 @@ func (h *Messenger) MessageUpdate(ctx echo.Context) error {
 // MessageDelete deletes a message
 func (h *Messenger) MessageDelete(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== MESSAGE DELETE START ===")
 
 	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
@@ -2064,7 +2021,6 @@ func (h *Messenger) MessageDelete(ctx echo.Context) error {
 		h.hub.SendToChannel(int64(channelID), event.ToJSON())
 	}
 
-	logger.Info("=== MESSAGE DELETE END ===")
 	return ctx.NoContent(http.StatusNoContent)
 }
 
@@ -2183,7 +2139,6 @@ func (h *Messenger) MessageReplies(ctx echo.Context) error {
 // MessageThread renders the thread view page
 func (h *Messenger) MessageThread(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== MESSAGE THREAD VIEW START ===")
 
 	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
@@ -2366,14 +2321,12 @@ func (h *Messenger) MessageThread(ctx echo.Context) error {
 	}
 
 	logger.Info("Rendering thread page", "message_id", id, "channel_id", parentMsg.ChannelID, "replies_count", len(replyData))
-	logger.Info("=== MESSAGE THREAD VIEW END ===")
 	return messengerPages.Thread(ctx, int64(parentMsg.ChannelID), parentData, replyData)
 }
 
 // MessageReply creates a reply to a message (thread)
 func (h *Messenger) MessageReply(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== MESSAGE REPLY START ===")
 
 	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
@@ -2522,12 +2475,10 @@ func (h *Messenger) MessageReply(ctx echo.Context) error {
 			logger.Error("Failed to render reply item", "error", err)
 			return fail(err, "failed to render reply")
 		}
-		logger.Info("=== MESSAGE REPLY END ===")
 		return ctx.HTML(http.StatusOK, buf.String())
 	}
 
 	logger.Info("Non-HTMX request, returning JSON", "reply_id", reply.ID)
-	logger.Info("=== MESSAGE REPLY END ===")
 	return ctx.JSON(http.StatusCreated, reply)
 }
 
@@ -2567,7 +2518,6 @@ func (h *Messenger) DMList(ctx echo.Context) error {
 //   - error: ошибка если DM не найден, пользователь не является участником, или ошибка загрузки данных
 func (h *Messenger) DMView(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== DM VIEW START ===")
 
 	// Получаем ID прямого сообщения из URL параметра
 	// Например, для URL /dm/123 параметр "id" будет "123"
@@ -2705,7 +2655,6 @@ func (h *Messenger) DMView(ctx echo.Context) error {
 	logger.Info("Messages converted and reversed", "dm_id", id, "messages_count", len(messageData))
 
 	logger.Info("Rendering direct message page", "dm_id", id, "other_user_name", otherUser.Name, "messages_count", len(messageData))
-	logger.Info("=== DM VIEW END ===")
 	return messengerPages.DirectMessage(ctx, int64(id), otherUser.Name, messageData)
 }
 
@@ -2829,7 +2778,6 @@ func (h *Messenger) DMMessages(ctx echo.Context) error {
 // DMMessageCreate creates a message in a direct message conversation
 func (h *Messenger) DMMessageCreate(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== DM MESSAGE CREATE START ===")
 
 	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
@@ -3063,12 +3011,10 @@ func (h *Messenger) DMMessageCreate(ctx echo.Context) error {
 			logger.Error("Failed to render DM message item", "error", err)
 			return fail(err, "failed to render message")
 		}
-		logger.Info("=== DM MESSAGE CREATE END ===")
 		return ctx.HTML(http.StatusOK, buf.String())
 	}
 
 	logger.Info("Non-HTMX request, returning JSON", "message_id", msg.ID)
-	logger.Info("=== DM MESSAGE CREATE END ===")
 	return ctx.JSON(http.StatusCreated, msg)
 }
 
@@ -3141,7 +3087,6 @@ func (h *Messenger) ReactionAdd(ctx echo.Context) error {
 // ReactionRemove removes a reaction from a message
 func (h *Messenger) ReactionRemove(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== REACTION REMOVE START ===")
 
 	messageID, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
@@ -3203,7 +3148,6 @@ func (h *Messenger) ReactionRemove(ctx echo.Context) error {
 		h.hub.SendToChannel(int64(msg.ChannelID), event.ToJSON())
 	}
 
-	logger.Info("=== REACTION REMOVE END ===")
 	return ctx.NoContent(http.StatusNoContent)
 }
 
@@ -3306,7 +3250,6 @@ func (h *Messenger) AttachmentUpload(ctx echo.Context) error {
 // DMAttachmentUpload uploads a file attachment to a direct message
 func (h *Messenger) DMAttachmentUpload(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== DM ATTACHMENT UPLOAD START ===")
 
 	dmID, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
@@ -3419,7 +3362,7 @@ func (h *Messenger) DMAttachmentUpload(ctx echo.Context) error {
 		return fail(err, "failed to create attachment record")
 	}
 
-	logger.Info("=== DM ATTACHMENT UPLOAD END ===", "attachment_id", attachment.ID)
+	logger.Info("Attachment uploaded successfully", "attachment_id", attachment.ID)
 	return ctx.JSON(http.StatusCreated, attachment)
 }
 
