@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"net/http"
-
 	"github.com/go-playground/validator/v10"
 	"github.com/labstack/echo/v4"
 	"github.com/mikestefanello/pagoda/config"
@@ -220,18 +218,10 @@ func (h *Auth) LoginSubmit(ctx echo.Context) error {
 	logger.Info("Success message set")
 
 	// Redirect to root which will redirect to workspace
-	redirectURL := "/"
-	logger.Info("Preparing redirect", "redirect_url", redirectURL)
-	logger.Info("Response status before redirect", "status", ctx.Response().Status)
-	logger.Info("Response headers before redirect", "headers", ctx.Response().Header())
-
-	err = ctx.Redirect(http.StatusFound, redirectURL)
-	if err != nil {
-		logger.Error("Redirect failed", "error", err)
-		return err
-	}
-
-	logger.Info("Redirect executed", "status", ctx.Response().Status)
+	logger.Info("Preparing redirect to root")
+	return redirect.New(ctx).
+		Route(routenames.Home).
+		Go()
 	logger.Info("=== LOGIN SUBMIT END ===")
 	return err
 }

@@ -72,7 +72,7 @@ type Connection struct {
 // Работает до закрытия соединения или ошибки чтения
 func (c *Connection) ReadPump() {
 	if c.Logger != nil {
-		c.Logger.Info("=== WEBSOCKET READ PUMP START ===", "user_id", c.UserID)
+		c.Logger.Info("WebSocket read pump started", "user_id", c.UserID)
 	}
 
 	// defer выполнится при выходе из функции (нормальном или из-за ошибки)
@@ -93,10 +93,6 @@ func (c *Connection) ReadPump() {
 
 		// Закрываем WebSocket соединение
 		c.WS.Close()
-
-		if c.Logger != nil {
-			c.Logger.Info("=== WEBSOCKET READ PUMP END ===", "user_id", c.UserID)
-		}
 	}()
 
 	// Устанавливаем таймаут для чтения (pongWait)
@@ -156,12 +152,19 @@ func (c *Connection) ReadPump() {
 // Запускается в отдельной goroutine для каждого соединения
 // Работает до закрытия канала Send или ошибки записи
 func (c *Connection) WritePump() {
+	if c.Logger != nil {
+		c.Logger.Info("WebSocket write pump started", "user_id", c.UserID)
+	}
+
 	// Создаём тикер для периодической отправки ping сообщений
 	// Ping используется для keep-alive - проверки, что соединение живо
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop() // Останавливаем тикер при выходе
-		c.WS.Close()  // Закрываем WebSocket соединение
+		if c.Logger != nil {
+			c.Logger.Info("WebSocket write pump closing", "user_id", c.UserID)
+		}
+		c.WS.Close() // Закрываем WebSocket соединение
 	}()
 
 	for {
@@ -178,6 +181,9 @@ func (c *Connection) WritePump() {
 			// Получаем writer для отправки текстового сообщения
 			w, err := c.WS.NextWriter(websocket.TextMessage)
 			if err != nil {
+				if c.Logger != nil {
+					c.Logger.Warn("WebSocket write error", "user_id", c.UserID, "error", err)
+				}
 				return // Ошибка получения writer - выходим
 			}
 			// Записываем сообщение
@@ -193,6 +199,9 @@ func (c *Connection) WritePump() {
 
 			// Закрываем writer (отправляет данные клиенту)
 			if err := w.Close(); err != nil {
+				if c.Logger != nil {
+					c.Logger.Warn("WebSocket writer close error", "user_id", c.UserID, "error", err)
+				}
 				return // Ошибка закрытия - выходим
 			}
 
@@ -200,6 +209,9 @@ func (c *Connection) WritePump() {
 			// Время отправить ping сообщение
 			c.WS.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.WS.WriteMessage(websocket.PingMessage, nil); err != nil {
+				if c.Logger != nil {
+					c.Logger.Warn("WebSocket ping error", "user_id", c.UserID, "error", err)
+				}
 				return // Ошибка отправки ping - выходим
 			}
 		}

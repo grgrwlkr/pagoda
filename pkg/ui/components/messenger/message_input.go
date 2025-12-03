@@ -47,6 +47,9 @@ func MessageInput(r *ui.Request, channelIDOrDMID int64, isDM bool) Node {
 			Attr("hx-target", "#message-list"),         // Куда вставить новое сообщение
 			Attr("hx-swap", "beforeend"),               // Вставить в конец списка сообщений
 			Attr("hx-encoding", "multipart/form-data"), // Кодировка для файлов
+			Attr("hx-trigger", "submit"),               // Явно указываем триггер submit
+			// Предотвращаем обычную отправку формы (fallback для браузеров без JS)
+			Attr("onsubmit", "event.preventDefault(); return false;"),
 			// hx-on::after-request: выполнить после успешной отправки
 			// Очищаем textarea, сбрасываем высоту, очищаем превью файлов и input файлов
 			Attr("hx-on::after-request", "this.querySelector('textarea').value = ''; this.querySelector('textarea').style.height = 'auto'; document.getElementById('file-preview-container').innerHTML = ''; document.getElementById('file-preview-container').classList.add('hidden'); document.getElementById('file-input').value = '';"),

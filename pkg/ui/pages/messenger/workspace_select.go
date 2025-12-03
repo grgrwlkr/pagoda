@@ -1,8 +1,6 @@
 package messenger
 
 import (
-	"fmt"
-
 	"github.com/labstack/echo/v4"
 	"github.com/mikestefanello/pagoda/ent"
 	"github.com/mikestefanello/pagoda/pkg/ui"
@@ -17,33 +15,15 @@ func WorkspaceSelect(ctx echo.Context, workspaces []*ent.Workspace) error {
 	r.Title = "Select Workspace"
 
 	// Формируем путь для создания нового workspace
-	createFormPath := "/workspace/create/form"
-	func() {
-		defer func() {
-			_ = recover()
-		}()
-		if r != nil && r.Context != nil {
-			if path := r.Path("messenger.workspace.create.form"); path != "" && path != "/" {
-				createFormPath = path
-			}
-		}
-	}()
+	// r.Path() уже имеет встроенную защиту от паники и fallback
+	createFormPath := r.Path("messenger.workspace.create.form")
 
 	// Создаем список workspace карточек
 	workspaceCards := make(Group, 0, len(workspaces))
 	for _, ws := range workspaces {
 		// Формируем путь для перехода в workspace
-		workspacePath := fmt.Sprintf("/workspace/%d", ws.ID)
-		func() {
-			defer func() {
-				_ = recover()
-			}()
-			if r != nil && r.Context != nil {
-				if path := r.Path("messenger.workspace.view", ws.ID); path != "" && path != "/" {
-					workspacePath = path
-				}
-			}
-		}()
+		// r.Path() уже имеет встроенную защиту от паники и fallback
+		workspacePath := r.Path("messenger.workspace.view", ws.ID)
 
 		workspaceCards = append(workspaceCards,
 			A(

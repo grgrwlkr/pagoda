@@ -86,7 +86,7 @@ func (h *WebSocket) HandleWebSocket(ctx echo.Context) error {
 	upgrader := gorillaWS.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			origin := r.Header.Get("Origin")
-			logger.Debug("Checking WebSocket origin", "origin", origin, "app_host", appHost)
+			logger.Info("Checking WebSocket origin", "origin", origin, "app_host", appHost, "request_host", r.Host)
 
 			// Allow requests without Origin header (e.g., from same origin or browser extensions)
 			if origin == "" {
@@ -165,6 +165,8 @@ func (h *WebSocket) HandleWebSocket(ctx echo.Context) error {
 		return err
 	}
 
+	logger.Info("WebSocket connection upgraded successfully", "user_id", userEntity.ID)
+
 	// Create a new context for WebSocket connection that won't be canceled
 	// The HTTP request context is canceled after the upgrade, so we need a separate context
 	// that will live for the lifetime of the WebSocket connection
@@ -181,17 +183,23 @@ func (h *WebSocket) HandleWebSocket(ctx echo.Context) error {
 		Logger: logger,
 	}
 
-	// Register connection
+	// Register connection (non-blocking, sends to channel)
 	h.hub.Register(conn)
+	logger.Info("WebSocket connection registered", "user_id", userEntity.ID)
 
-	// Start connection pumps
+	// Start connection pumps in goroutines
 	go conn.WritePump()
 	go conn.ReadPump()
+
+	logger.Info("WebSocket pumps started", "user_id", userEntity.ID)
 
 	// Send online status
 	onlineEvent := ws.UserOnlineEvent(conn.UserID)
 	h.hub.Broadcast(onlineEvent.ToJSON())
 
+	// For WebSocket connections, we don't return an error
+	// The connection is handled by the pumps in goroutines
+	// Returning nil tells Echo that the response has been handled
 	return nil
 }
 

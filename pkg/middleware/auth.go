@@ -9,6 +9,7 @@ import (
 	"github.com/mikestefanello/pagoda/pkg/context"
 	"github.com/mikestefanello/pagoda/pkg/log"
 	"github.com/mikestefanello/pagoda/pkg/msg"
+	"github.com/mikestefanello/pagoda/pkg/redirect"
 	"github.com/mikestefanello/pagoda/pkg/routenames"
 	"github.com/mikestefanello/pagoda/pkg/services"
 
@@ -87,7 +88,9 @@ func LoadValidPasswordToken(authClient *services.AuthClient) echo.MiddlewareFunc
 				return next(c)
 			case services.InvalidPasswordTokenError:
 				msg.Warning(c, "The link is either invalid or has expired. Please request a new one.")
-				return c.Redirect(http.StatusFound, c.Echo().Reverse(routenames.ForgotPassword))
+				return redirect.New(c).
+					Route(routenames.ForgotPassword).
+					Go()
 			default:
 				return echo.NewHTTPError(
 					http.StatusInternalServerError,

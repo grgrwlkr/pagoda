@@ -35,9 +35,9 @@ func ChannelCreateModal(r *ui.Request, workspaceID int64, form *messenger.Channe
 		)
 	}
 
-	// Формируем путь напрямую, избегая вызова r.Path() который может вызвать панику
-	// Используем прямой путь вместо r.Path() для надежности
-	createPath := fmt.Sprintf("/workspace/%d/channels", workspaceID)
+	// Формируем путь для создания канала
+	// r.Path() уже имеет встроенную защиту от паники и fallback
+	createPath := r.Path("messenger.channel.create", workspaceID)
 
 	// Создаем CSRF input заранее, чтобы избежать проблем с nil
 	var csrfInput Node
@@ -217,10 +217,8 @@ func renderNodeToString(node Node) string {
 // WorkspaceCreateModal renders a modal for creating a new workspace
 func WorkspaceCreateModal(r *ui.Request, form *messenger.WorkspaceForm) Node {
 	// Формируем путь для создания workspace
+	// r.Path() уже имеет встроенную защиту от паники и fallback
 	createPath := r.Path("messenger.workspace.create")
-	if createPath == "" {
-		createPath = "/workspace/create"
-	}
 
 	// Создаем CSRF input заранее
 	var csrfInput Node

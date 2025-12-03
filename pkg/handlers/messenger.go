@@ -346,7 +346,9 @@ func (h *Messenger) RootRedirect(ctx echo.Context) error {
 	if userInterface == nil {
 		// Not authenticated, redirect to login
 		logger.Info("User not authenticated, redirecting to login")
-		return ctx.Redirect(http.StatusFound, "/user/login")
+		return redirect.New(ctx).
+			Route(routenames.Login).
+			Go()
 	}
 
 	logger.Info("User is authenticated", "user", userInterface)
@@ -1197,17 +1199,11 @@ func (h *Messenger) ChannelCreate(ctx echo.Context) error {
 
 	// If HTMX request, close modal and redirect
 	if htmx.GetRequest(ctx).Enabled {
-		// Проверяем, что Echo не nil перед вызовом Reverse
-		if echoInstance := ctx.Echo(); echoInstance != nil {
-			redirectURL := echoInstance.Reverse(routenames.MessengerChannelView, ch.ID)
-			logger.Info("HTMX request detected, redirecting", "redirect_url", redirectURL, "channel_id", ch.ID)
-			htmx.Response{Redirect: redirectURL}.Apply(ctx)
-		} else {
-			// Fallback: формируем URL вручную
-			redirectURL := fmt.Sprintf("/channel/%d", ch.ID)
-			logger.Warn("Echo instance is nil, using manual URL", "redirect_url", redirectURL, "channel_id", ch.ID)
-			htmx.Response{Redirect: redirectURL}.Apply(ctx)
-		}
+		// Используем ui.Request для генерации пути (имеет встроенную защиту и fallback)
+		r := ui.NewRequest(ctx)
+		redirectURL := r.Path(routenames.MessengerChannelView, ch.ID)
+		logger.Info("HTMX request detected, redirecting", "redirect_url", redirectURL, "channel_id", ch.ID)
+		htmx.Response{Redirect: redirectURL}.Apply(ctx)
 		return ctx.NoContent(http.StatusOK)
 	}
 
@@ -1854,7 +1850,10 @@ func (h *Messenger) MessageCreate(ctx echo.Context) error {
 	}
 
 	// If HTMX request, return HTML for the new message
-	if htmx.GetRequest(ctx).Enabled {
+	htmxReq := htmx.GetRequest(ctx)
+	hxRequestHeader := ctx.Request().Header.Get("HX-Request")
+	logger.Info("Checking HTMX request", "enabled", htmxReq.Enabled, "boosted", htmxReq.Boosted, "target", htmxReq.Target, "hx_request_header", hxRequestHeader)
+	if htmxReq.Enabled {
 		logger.Info("HTMX request detected, returning HTML message item")
 		// Load user for message display
 		msgWithUser, err := h.orm.Message.Query().Where(message.IDEQ(msg.ID)).WithUser().Only(ctx.Request().Context())
@@ -1901,10 +1900,14 @@ func (h *Messenger) MessageCreate(ctx echo.Context) error {
 			logger.Error("Failed to render message item", "error", err)
 			return fail(err, "failed to render message")
 		}
-		return ctx.HTML(http.StatusOK, buf.String())
+		htmlContent := buf.String()
+		logger.Info("Returning HTML message item", "html_length", len(htmlContent))
+		// Устанавливаем правильный Content-Type для HTMX
+		ctx.Response().Header().Set("Content-Type", "text/html; charset=utf-8")
+		return ctx.HTML(http.StatusOK, htmlContent)
 	}
 
-	logger.Info("Non-HTMX request, returning JSON", "message_id", msg.ID)
+	logger.Info("Non-HTMX request, returning JSON", "message_id", msg.ID, "hx_request_header", ctx.Request().Header.Get("HX-Request"))
 	return ctx.JSON(http.StatusCreated, msg)
 }
 
