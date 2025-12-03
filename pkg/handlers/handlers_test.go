@@ -6,14 +6,22 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v4"
+	"github.com/mikestefanello/pagoda/pkg/services"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// TestHandler is a test handler for testing
+type TestHandler struct{}
+
+func (h *TestHandler) Init(c *services.Container) error { return nil }
+func (h *TestHandler) Routes(g *echo.Group)             {}
+
 func TestGetSetHandlers(t *testing.T) {
 	handlers = []Handler{}
 	assert.Empty(t, GetHandlers())
-	h := new(Pages)
+	// Pages handler removed - using test handler instead
+	h := new(TestHandler)
 	Register(h)
 	got := GetHandlers()
 	require.Len(t, got, 1)

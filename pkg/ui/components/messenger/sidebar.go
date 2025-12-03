@@ -42,6 +42,8 @@ func Sidebar(r *ui.Request, data SidebarData) Node {
 			Class("p-4 border-b border-base-300"),
 			userProfileSection(r),
 		),
+		// Search box
+		SearchBox(r, data.WorkspaceID),
 		// Workspace selector
 		Div(
 			Class("p-4 border-b border-base-300"),
@@ -68,13 +70,13 @@ func Sidebar(r *ui.Request, data SidebarData) Node {
 }
 
 func userProfileSection(r *ui.Request) Node {
-	if !r.IsAuth {
+	if !r.IsAuth || r.AuthUser == nil {
 		return Div(Text("Not authenticated"))
 	}
 
 	return Div(
 		Class("flex items-center gap-3"),
-		UserAvatar(r, int64(r.AuthUser.ID), r.AuthUser.Name, "sm"),
+		UserAvatar(r, int64(r.AuthUser.ID), r.AuthUser.Name, "sm", nil), // nil = unknown online status
 		Div(
 			Class("flex-1 min-w-0"),
 			Div(

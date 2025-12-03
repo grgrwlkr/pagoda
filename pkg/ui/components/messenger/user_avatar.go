@@ -8,9 +8,10 @@ import (
 	. "maragu.dev/gomponents/html"
 )
 
-// UserAvatar renders a user avatar
+// UserAvatar renders a user avatar with optional online status indicator
 // size can be: "xs", "sm", "md", "lg"
-func UserAvatar(r *ui.Request, userID int64, userName string, size string) Node {
+// isOnline: optional online status (nil = unknown, true = online, false = offline)
+func UserAvatar(r *ui.Request, userID int64, userName string, size string, isOnline *bool) Node {
 	// Generate initials from name
 	initials := getInitials(userName)
 
@@ -27,14 +28,44 @@ func UserAvatar(r *ui.Request, userID int64, userName string, size string) Node 
 		sizeClass = sizeClasses["md"]
 	}
 
+	// Online status indicator size
+	statusSize := "w-2 h-2"
+	if size == "xs" {
+		statusSize = "w-1.5 h-1.5"
+	} else if size == "lg" {
+		statusSize = "w-3 h-3"
+	}
+
 	// TODO: Add avatar URL support when UserProfile is implemented
 	// For now, use placeholder with initials
+
+	// Build online status indicator if isOnline is not nil
+	var statusIndicator Node
+	if isOnline != nil {
+		var statusClass string
+		var statusValue string
+		if *isOnline {
+			statusClass = "bg-success"
+			statusValue = "true"
+		} else {
+			statusClass = "bg-base-300"
+			statusValue = "false"
+		}
+		statusIndicator = Div(
+			Class(fmt.Sprintf("absolute bottom-0 right-0 %s rounded-full border-2 border-base-100 %s", statusSize, statusClass)),
+			Attr("data-online", statusValue),
+		)
+	}
+
 	return Div(
-		Class(fmt.Sprintf("avatar placeholder %s", sizeClass)),
+		Class(fmt.Sprintf("avatar placeholder %s relative", sizeClass)),
+		ID(fmt.Sprintf("user-avatar-%d", userID)),
 		Div(
 			Class("bg-neutral text-neutral-content rounded-full flex items-center justify-center font-semibold"),
 			Text(initials),
 		),
+		// Online status indicator
+		If(statusIndicator != nil, statusIndicator),
 	)
 }
 

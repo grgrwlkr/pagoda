@@ -106,7 +106,7 @@ func dmItem(r *ui.Request, id, userID int64, name string, isActive bool) Node {
 			Class("flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-base-300 transition-colors"),
 			If(isActive, Class("bg-base-300")),
 			Attr("hx-boost", "true"),
-			UserAvatar(r, userID, name, "xs"),
+			UserAvatar(r, userID, name, "xs", nil), // nil = unknown online status
 			Span(
 				Class("flex-1 truncate"),
 				Text(name),

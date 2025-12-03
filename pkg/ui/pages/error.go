@@ -6,7 +6,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/mikestefanello/pagoda/pkg/routenames"
 	"github.com/mikestefanello/pagoda/pkg/ui"
-	"github.com/mikestefanello/pagoda/pkg/ui/layouts"
+	messengerLayouts "github.com/mikestefanello/pagoda/pkg/ui/layouts"
 	. "maragu.dev/gomponents"
 	. "maragu.dev/gomponents/html"
 )
@@ -25,14 +25,31 @@ func Error(ctx echo.Context, code int) error {
 		body = Group{
 			Text("Click "),
 			A(
-				Href(r.Path(routenames.Home)),
+				Href(r.Path(routenames.MessengerRoot)),
 				Text("here"),
 			),
-			Text(" to go return home."),
+			Text(" to return to workspace."),
 		}
 	default:
 		body = Text("Something went wrong.")
 	}
 
-	return r.Render(layouts.Primary, P(body))
+	content := Div(
+		Class("flex flex-col items-center justify-center h-full p-8"),
+		Div(
+			Class("text-center max-w-md"),
+			H1(
+				Class("text-3xl font-bold mb-4"),
+				Text(r.Title),
+			),
+			P(
+				Class("text-base-content/70"),
+				body,
+			),
+		),
+	)
+
+	// For error pages, we don't have sidebar data, so use empty SidebarData
+	// The Sidebar component will handle empty data gracefully
+	return r.Render(messengerLayouts.Messenger, content)
 }

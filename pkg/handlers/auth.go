@@ -243,7 +243,7 @@ func (h *Auth) Logout(ctx echo.Context) error {
 		msg.Error(ctx, "An error occurred. Please try again.")
 	}
 	return redirect.New(ctx).
-		Route(routenames.Home).
+		Route(routenames.MessengerRoot).
 		Go()
 }
 
@@ -307,7 +307,9 @@ func (h *Auth) RegisterSubmit(ctx echo.Context) error {
 	h.sendVerificationEmail(ctx, u)
 
 	// Redirect to root which will redirect to workspace
-	return ctx.Redirect(http.StatusFound, "/")
+	return redirect.New(ctx).
+		Route(routenames.MessengerRoot).
+		Go()
 }
 
 func (h *Auth) sendVerificationEmail(ctx echo.Context, usr *ent.User) {
@@ -430,6 +432,6 @@ func (h *Auth) VerifyEmail(ctx echo.Context) error {
 
 	msg.Success(ctx, "Your email has been successfully verified.")
 	return redirect.New(ctx).
-		Route(routenames.Home).
+		Route(routenames.MessengerRoot).
 		Go()
 }

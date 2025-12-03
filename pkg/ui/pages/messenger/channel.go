@@ -40,35 +40,64 @@ func websocketScript(r *ui.Request, channelID int64) Node {
 	return Script(
 		Raw(`
 (function() {
-	const ws = new WebSocket('ws://' + window.location.host + '/ws');
+	let ws = null;
+	let reconnectAttempts = 0;
+	const maxReconnectAttempts = 5;
+	const reconnectDelay = 3000; // 3 seconds
 	const channelID = ` + fmt.Sprintf("%d", channelID) + `;
 	
-	ws.onopen = function() {
-		console.log('WebSocket connected');
-		// Join channel
-		ws.send(JSON.stringify({
-			type: 'join_channel',
-			data: { channel_id: channelID }
-		}));
-	};
+	// Track typing users
+	const typingUsers = new Map(); // userID -> timeout
 	
-	ws.onmessage = function(event) {
-		const message = JSON.parse(event.data);
-		handleWebSocketMessage(message);
-	};
-	
-	ws.onerror = function(error) {
-		console.error('WebSocket error:', error);
-	};
-	
-	ws.onclose = function() {
-		console.log('WebSocket disconnected');
-	};
+	function connect() {
+		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+		ws = new WebSocket(protocol + '//' + window.location.host + '/ws');
+		
+		ws.onopen = function() {
+			console.log('WebSocket connected');
+			reconnectAttempts = 0;
+			// Join channel
+			ws.send(JSON.stringify({
+				type: 'join_channel',
+				data: { channel_id: channelID }
+			}));
+		};
+		
+		ws.onmessage = function(event) {
+			try {
+				const message = JSON.parse(event.data);
+				handleWebSocketMessage(message);
+			} catch (e) {
+				console.error('Failed to parse WebSocket message:', e);
+			}
+		};
+		
+		ws.onerror = function(error) {
+			console.error('WebSocket error:', error);
+		};
+		
+		ws.onclose = function(event) {
+			console.log('WebSocket disconnected', 'code', event.code, 'reason', event.reason);
+			// Clear typing indicators
+			clearTypingIndicator();
+			
+			// Attempt to reconnect if not a normal closure
+			if (event.code !== 1000 && reconnectAttempts < maxReconnectAttempts) {
+				reconnectAttempts++;
+				console.log('Attempting to reconnect...', 'attempt', reconnectAttempts);
+				setTimeout(connect, reconnectDelay);
+			} else if (reconnectAttempts >= maxReconnectAttempts) {
+				console.error('Max reconnection attempts reached');
+			}
+		};
+	}
 	
 	function handleWebSocketMessage(message) {
 		switch(message.type) {
 			case 'message_new':
-				addMessage(message.data);
+				// Message is already added via HTMX, just scroll to bottom
+				scrollToBottom();
+				clearTypingIndicator();
 				break;
 			case 'message_edited':
 				updateMessage(message.data);
@@ -77,30 +106,38 @@ func websocketScript(r *ui.Request, channelID int64) Node {
 				removeMessage(message.data.message_id);
 				break;
 			case 'user_typing':
-				showTypingIndicator(message.data.user_id);
+				showTypingIndicator(message.data.user_id, message.data.user_name || 'Someone');
+				break;
+			case 'user_online':
+				updateUserStatus(message.data.user_id, true);
+				break;
+			case 'user_offline':
+				updateUserStatus(message.data.user_id, false);
 				break;
 			case 'reaction_added':
-				updateReaction(message.data);
-				break;
 			case 'reaction_removed':
-				updateReaction(message.data);
+				// Reload the message to update reactions
+				location.reload();
 				break;
-		}
-	}
-	
-	function addMessage(data) {
-		// Add message to list
-		const messageList = document.getElementById('message-list');
-		if (messageList) {
-			// Create message element and append
-			// This is a simplified version - full implementation would create proper HTML
+			case 'channel_updated':
+			case 'member_joined':
+			case 'member_left':
+				// Reload page to update sidebar
+				location.reload();
+				break;
+			case 'error':
+				console.error('WebSocket error:', message.data);
+				break;
 		}
 	}
 	
 	function updateMessage(data) {
 		const messageEl = document.getElementById('message-' + data.message_id);
 		if (messageEl) {
-			// Update message content
+			const contentEl = messageEl.querySelector('.message-content');
+			if (contentEl) {
+				contentEl.textContent = data.content;
+			}
 		}
 	}
 	
@@ -111,40 +148,138 @@ func websocketScript(r *ui.Request, channelID int64) Node {
 		}
 	}
 	
-	function showTypingIndicator(userID) {
-		// Show typing indicator
+	function showTypingIndicator(userID, userName) {
+		// Clear existing timeout for this user
+		if (typingUsers.has(userID)) {
+			clearTimeout(typingUsers.get(userID));
+		}
+		
+		// Update typing indicator
+		const container = document.getElementById('typing-indicator-container');
+		if (container) {
+			container.innerHTML = '<div id="typing-indicator" class="px-4 py-2 text-sm text-base-content/60 italic">' + 
+				userName + ' is typing<span class="inline-block ml-1">...</span></div>';
+		}
+		
+		// Set timeout to hide typing indicator after 3 seconds
+		const timeout = setTimeout(() => {
+			typingUsers.delete(userID);
+			updateTypingIndicator();
+		}, 3000);
+		
+		typingUsers.set(userID, timeout);
 	}
 	
-	function updateReaction(data) {
-		// Update reaction on message
+	function clearTypingIndicator() {
+		typingUsers.clear();
+		const container = document.getElementById('typing-indicator-container');
+		if (container) {
+			container.innerHTML = '';
+		}
 	}
 	
-	// Handle message input
+	function updateTypingIndicator() {
+		const container = document.getElementById('typing-indicator-container');
+		if (!container) return;
+		
+		if (typingUsers.size === 0) {
+			container.innerHTML = '';
+			return;
+		}
+		
+		// For now, just show "Someone is typing..."
+		// In full implementation, we'd track user names
+		container.innerHTML = '<div id="typing-indicator" class="px-4 py-2 text-sm text-base-content/60 italic">' + 
+			'Someone is typing<span class="inline-block ml-1">...</span></div>';
+	}
+	
+	function updateUserStatus(userID, isOnline) {
+		// Update online status indicator in sidebar or user list
+		// This would require tracking user elements
+		console.log('User status updated', 'user_id', userID, 'online', isOnline);
+	}
+	
+	function scrollToBottom() {
+		const messageList = document.getElementById('message-list');
+		if (messageList) {
+			messageList.scrollTop = messageList.scrollHeight;
+		}
+	}
+	
+	// Handle typing events
 	const messageInput = document.getElementById('message-input');
-	const sendButton = document.getElementById('message-send');
+	let typingTimeout = null;
 	
-	if (messageInput && sendButton) {
-		sendButton.addEventListener('click', function() {
-			const content = messageInput.value.trim();
-			if (content) {
+	if (messageInput) {
+		// Send typing_start when user starts typing
+		messageInput.addEventListener('input', function() {
+			if (ws && ws.readyState === WebSocket.OPEN) {
 				ws.send(JSON.stringify({
-					type: 'message_send',
-					data: {
-						channel_id: channelID,
-						content: content
-					}
+					type: 'typing_start',
+					data: { channel_id: channelID }
 				}));
-				messageInput.value = '';
+				
+				// Clear existing timeout
+				if (typingTimeout) {
+					clearTimeout(typingTimeout);
+				}
+				
+				// Send typing_stop after 2 seconds of inactivity
+				typingTimeout = setTimeout(function() {
+					if (ws && ws.readyState === WebSocket.OPEN) {
+						ws.send(JSON.stringify({
+							type: 'typing_stop',
+							data: { channel_id: channelID }
+						}));
+					}
+				}, 2000);
 			}
 		});
 		
+		// Send typing_stop when message is sent
 		messageInput.addEventListener('keypress', function(e) {
 			if (e.key === 'Enter' && !e.shiftKey) {
-				e.preventDefault();
-				sendButton.click();
+				if (typingTimeout) {
+					clearTimeout(typingTimeout);
+					typingTimeout = null;
+				}
+				if (ws && ws.readyState === WebSocket.OPEN) {
+					ws.send(JSON.stringify({
+						type: 'typing_stop',
+						data: { channel_id: channelID }
+					}));
+				}
 			}
 		});
 	}
+	
+	// Mark channel as read when page becomes visible
+	document.addEventListener('visibilitychange', function() {
+		if (!document.hidden && ws && ws.readyState === WebSocket.OPEN) {
+			ws.send(JSON.stringify({
+				type: 'mark_read',
+				data: { channel_id: channelID }
+			}));
+		}
+	});
+	
+	// Mark as read on page load
+	if (ws && ws.readyState === WebSocket.OPEN) {
+		ws.send(JSON.stringify({
+			type: 'mark_read',
+			data: { channel_id: channelID }
+		}));
+	}
+	
+	// Initial connection
+	connect();
+	
+	// Cleanup on page unload
+	window.addEventListener('beforeunload', function() {
+		if (ws) {
+			ws.close(1000, 'Page unloading');
+		}
+	});
 })();
 		`),
 	)

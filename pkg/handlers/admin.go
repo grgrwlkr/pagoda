@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -12,13 +11,11 @@ import (
 	"github.com/mikestefanello/pagoda/ent"
 	"github.com/mikestefanello/pagoda/ent/admin"
 	"github.com/mikestefanello/pagoda/pkg/context"
-	"github.com/mikestefanello/pagoda/pkg/middleware"
 	"github.com/mikestefanello/pagoda/pkg/msg"
 	"github.com/mikestefanello/pagoda/pkg/pager"
 	"github.com/mikestefanello/pagoda/pkg/redirect"
 	"github.com/mikestefanello/pagoda/pkg/routenames"
 	"github.com/mikestefanello/pagoda/pkg/services"
-	"github.com/mikestefanello/pagoda/pkg/ui/pages"
 )
 
 type Admin struct {
@@ -47,34 +44,9 @@ func (h *Admin) Init(c *services.Container) error {
 }
 
 func (h *Admin) Routes(g *echo.Group) {
-	ag := g.Group("/admin", middleware.RequireAdmin)
-
-	entities := ag.Group("/entity")
-	for _, n := range admin.GetEntityTypes() {
-		ng := entities.Group(fmt.Sprintf("/%s", strings.ToLower(n.GetName())))
-		ng.GET("", h.EntityList(n)).
-			Name = routenames.AdminEntityList(n.GetName())
-		ng.GET("/add", h.EntityAdd(n)).
-			Name = routenames.AdminEntityAdd(n.GetName())
-		ng.POST("/add", h.EntityAddSubmit(n)).
-			Name = routenames.AdminEntityAddSubmit(n.GetName())
-		ng.GET("/:id/edit", h.EntityEdit(n), h.middlewareEntityLoad(n)).
-			Name = routenames.AdminEntityEdit(n.GetName())
-		ng.POST("/:id/edit", h.EntityEditSubmit(n), h.middlewareEntityLoad(n)).
-			Name = routenames.AdminEntityEditSubmit(n.GetName())
-		ng.GET("/:id/delete", h.EntityDelete(n), h.middlewareEntityLoad(n)).
-			Name = routenames.AdminEntityDelete(n.GetName())
-		ng.POST("/:id/delete", h.EntityDeleteSubmit(n), h.middlewareEntityLoad(n)).
-			Name = routenames.AdminEntityDeleteSubmit(n.GetName())
-	}
-
-	tasks := ag.Group("/tasks")
-	tasks.GET("", h.Backlite(h.backlite.Running)).Name = routenames.AdminTasks
-	tasks.GET("/succeeded", h.Backlite(h.backlite.Succeeded))
-	tasks.GET("/failed", h.Backlite(h.backlite.Failed))
-	tasks.GET("/upcoming", h.Backlite(h.backlite.Upcoming))
-	tasks.GET("/task/:id", h.Backlite(h.backlite.Task))
-	tasks.GET("/completed/:id", h.Backlite(h.backlite.TaskCompleted))
+	// Routes removed - this is now a Slack-only application
+	// Admin panel is not needed for Slack messenger
+	// All admin routes have been disabled
 }
 
 // middlewareEntityLoad is middleware to extract the entity ID and attempt to load the given entity.
@@ -101,70 +73,40 @@ func (h *Admin) middlewareEntityLoad(n admin.EntityType) echo.MiddlewareFunc {
 	}
 }
 
+// Admin entity handlers removed - this is now a Slack-only application
 func (h *Admin) EntityList(n admin.EntityType) echo.HandlerFunc {
 	return func(ctx echo.Context) error {
-		list, err := h.admin.List(ctx, n)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, err)
-		}
-
-		return pages.AdminEntityList(ctx, n, list)
+		return echo.NewHTTPError(http.StatusNotFound, "Admin panel not available")
 	}
 }
 
 func (h *Admin) EntityAdd(n admin.EntityType) echo.HandlerFunc {
 	return func(ctx echo.Context) error {
-		return pages.AdminEntityInput(ctx, n, nil)
+		return echo.NewHTTPError(http.StatusNotFound, "Admin panel not available")
 	}
 }
 
 func (h *Admin) EntityAddSubmit(n admin.EntityType) echo.HandlerFunc {
 	return func(ctx echo.Context) error {
-		err := h.admin.Create(ctx, n)
-		if err != nil {
-			msg.Error(ctx, err.Error())
-			return h.EntityAdd(n)(ctx)
-		}
-
-		msg.Success(ctx, fmt.Sprintf("Successfully added %s.", n.GetName()))
-
-		return redirect.
-			New(ctx).
-			Route(routenames.AdminEntityList(n.GetName())).
-			StatusCode(http.StatusFound).
-			Go()
+		return echo.NewHTTPError(http.StatusNotFound, "Admin panel not available")
 	}
 }
 
 func (h *Admin) EntityEdit(n admin.EntityType) echo.HandlerFunc {
 	return func(ctx echo.Context) error {
-		v := ctx.Get(context.AdminEntityKey).(map[string][]string)
-		return pages.AdminEntityInput(ctx, n, v)
+		return echo.NewHTTPError(http.StatusNotFound, "Admin panel not available")
 	}
 }
 
 func (h *Admin) EntityEditSubmit(n admin.EntityType) echo.HandlerFunc {
 	return func(ctx echo.Context) error {
-		id := ctx.Get(context.AdminEntityIDKey).(int)
-		err := h.admin.Update(ctx, n, id)
-		if err != nil {
-			msg.Error(ctx, err.Error())
-			return h.EntityEdit(n)(ctx)
-		}
-
-		msg.Success(ctx, fmt.Sprintf("Updated %s.", n.GetName()))
-
-		return redirect.
-			New(ctx).
-			Route(routenames.AdminEntityList(n.GetName())).
-			StatusCode(http.StatusFound).
-			Go()
+		return echo.NewHTTPError(http.StatusNotFound, "Admin panel not available")
 	}
 }
 
 func (h *Admin) EntityDelete(n admin.EntityType) echo.HandlerFunc {
 	return func(ctx echo.Context) error {
-		return pages.AdminEntityDelete(ctx, n)
+		return echo.NewHTTPError(http.StatusNotFound, "Admin panel not available")
 	}
 }
 

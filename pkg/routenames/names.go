@@ -76,6 +76,11 @@ const (
 	MessengerAttachmentUpload = "messenger.attachment.upload"
 	MessengerAttachmentView   = "messenger.attachment.view"
 	MessengerAttachmentDelete = "messenger.attachment.delete"
+
+	// Search routes
+	MessengerSearch         = "messenger.search"
+	MessengerSearchMessages = "messenger.search.messages"
+	MessengerSearchUsers    = "messenger.search.users"
 )
 
 func AdminEntityList(entityTypeName string) string {

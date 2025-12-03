@@ -54,7 +54,7 @@ func messageItem(r *ui.Request, msg MessageData) Node {
 		Class("flex gap-3 hover:bg-base-200/50 p-2 rounded-lg transition-colors"),
 		ID(fmt.Sprintf("message-%d", msg.ID)),
 		// Avatar
-		UserAvatar(r, msg.UserID, msg.UserName, "sm"),
+		UserAvatar(r, msg.UserID, msg.UserName, "sm", nil), // nil = unknown online status
 		// Message content
 		Div(
 			Class("flex-1 min-w-0"),
