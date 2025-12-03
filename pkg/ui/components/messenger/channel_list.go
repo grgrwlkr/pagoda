@@ -1,8 +1,6 @@
 package messenger
 
 import (
-	"fmt"
-
 	"github.com/mikestefanello/pagoda/pkg/ui"
 	. "maragu.dev/gomponents"
 	. "maragu.dev/gomponents/html"
@@ -24,27 +22,8 @@ func ChannelList(r *ui.Request, channels []ChannelData, workspaceID int64) Node 
 	}
 
 	// Формируем путь для создания канала
-	// Проверяем, что workspaceID валидный
-	var createFormPath string
-	if workspaceID > 0 {
-		// Используем прямой путь, чтобы избежать проблем с r.Path()
-		createFormPath = fmt.Sprintf("/workspace/%d/channels/create/form", workspaceID)
-
-		// Пытаемся получить путь через r.Path(), но с защитой от паники
-		func() {
-			defer func() {
-				_ = recover()
-			}()
-			if r != nil && r.Context != nil {
-				if path := r.Path("messenger.channel.create.form", workspaceID); path != "" && path != "/" {
-					createFormPath = path
-				}
-			}
-		}()
-	} else {
-		// Если workspaceID невалидный, используем fallback
-		createFormPath = "/workspace/0/channels/create/form"
-	}
+	// r.Path() уже имеет встроенную защиту от паники и fallback
+	createFormPath := r.Path("messenger.channel.create.form", workspaceID)
 
 	return Div(
 		Class("space-y-2"),
