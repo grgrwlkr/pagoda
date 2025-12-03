@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -61,6 +62,9 @@ type Connection struct {
 
 	// Логгер для логирования событий соединения
 	Logger *slog.Logger
+
+	// onceClose гарантирует, что Close вызывается только один раз
+	onceClose sync.Once
 }
 
 // ReadPump читает сообщения из WebSocket соединения и отправляет их в Hub
@@ -77,13 +81,16 @@ func (c *Connection) ReadPump() {
 			c.Logger.Info("WebSocket read pump closing", "user_id", c.UserID)
 		}
 
-		// Отправляем событие "пользователь офлайн" перед отключением
+		// Отменяем регистрацию соединения в Hub ПЕРЕД отправкой событий
+		// Это предотвращает отправку событий самому себе
+		c.Hub.unregister <- c
+
+		// Отправляем событие "пользователь офлайн" после отмены регистрации
 		// Это позволяет другим пользователям видеть, что пользователь отключился
+		// Но не отправляем самому себе, так как соединение уже удалено из map
 		offlineEvent := UserOfflineEvent(c.UserID)
 		c.Hub.Broadcast(offlineEvent.ToJSON())
 
-		// Отменяем регистрацию соединения в Hub
-		c.Hub.unregister <- c
 		// Закрываем WebSocket соединение
 		c.WS.Close()
 
@@ -263,9 +270,9 @@ func (c *Connection) handleJoinChannel(event *Event) {
 		return
 	}
 
-	// Уведомляем других участников канала о присоединении
+	// Уведомляем других участников канала о присоединении (но не самого пользователя)
 	response := MemberJoinedEvent(chID, c.UserID)
-	c.Hub.SendToChannel(chID, response.ToJSON())
+	c.Hub.SendToChannelExcluding(chID, c.UserID, response.ToJSON())
 
 	if c.Logger != nil {
 		c.Logger.Info("User joined channel", "user_id", c.UserID, "channel_id", chID)
@@ -493,7 +500,14 @@ func (c *Connection) SendError(code, message string) {
 
 // Close закрывает соединение
 // Закрывает WebSocket соединение и канал Send
+// Использует sync.Once для гарантии, что закрытие происходит только один раз
 func (c *Connection) Close() {
-	c.WS.Close()
-	close(c.Send)
+	c.onceClose.Do(func() {
+		if c.WS != nil {
+			c.WS.Close()
+		}
+		if c.Send != nil {
+			close(c.Send)
+		}
+	})
 }

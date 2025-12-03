@@ -7,14 +7,16 @@ package handlers
 // ============================================================================
 
 import (
+	"context"
 	"net/http"
 	"net/url"
+	"strings"
 
 	gorillaWS "github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
 	"github.com/mikestefanello/pagoda/config"
 	"github.com/mikestefanello/pagoda/ent"
-	"github.com/mikestefanello/pagoda/pkg/context"
+	pkgcontext "github.com/mikestefanello/pagoda/pkg/context"
 	"github.com/mikestefanello/pagoda/pkg/log"
 	"github.com/mikestefanello/pagoda/pkg/middleware"
 	"github.com/mikestefanello/pagoda/pkg/routenames"
@@ -56,46 +58,63 @@ func (h *WebSocket) Routes(g *echo.Group) {
 // HandleWebSocket handles WebSocket upgrade requests.
 func (h *WebSocket) HandleWebSocket(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
-	logger.Info("=== WEBSOCKET HANDLER START ===")
-	logger.Info("WebSocket connection request", "remote_addr", ctx.Request().RemoteAddr, "origin", ctx.Request().Header.Get("Origin"))
 
 	// Get authenticated user from context
-	user := ctx.Get(context.AuthenticatedUserKey)
+	user := ctx.Get(pkgcontext.AuthenticatedUserKey)
 	if user == nil {
 		logger.Warn("WebSocket connection failed: user not authenticated")
 		return echo.NewHTTPError(http.StatusUnauthorized, "Authentication required")
 	}
 
 	userEntity := user.(*ent.User)
-	logger.Info("Authenticated user", "user_id", userEntity.ID, "user_email", userEntity.Email)
 
 	// Get app host from config for origin checking
-	appHost := ctx.Echo().Server.Addr
-	if appHost == "" {
-		appHost = "localhost:8000"
+	appHostURL, err := url.Parse(h.config.App.Host)
+	var appHost string
+	if err == nil && appHostURL.Host != "" {
+		appHost = appHostURL.Host
+	} else {
+		// Fallback to server address or default
+		appHost = ctx.Echo().Server.Addr
+		if appHost == "" {
+			appHost = "localhost:8000"
+		}
 	}
-	logger.Info("App host", "app_host", appHost)
+	logger.Info("App host for origin check", "app_host", appHost, "origin_header", ctx.Request().Header.Get("Origin"))
 
 	// Upgrade connection to WebSocket
 	upgrader := gorillaWS.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			origin := r.Header.Get("Origin")
+			logger.Debug("Checking WebSocket origin", "origin", origin, "app_host", appHost)
+
+			// Allow requests without Origin header (e.g., from same origin or browser extensions)
 			if origin == "" {
-				// Allow requests without Origin header (e.g., from same origin)
+				logger.Debug("No Origin header, allowing connection")
 				return true
 			}
 
 			originURL, err := url.Parse(origin)
 			if err != nil {
+				logger.Warn("Failed to parse origin URL", "origin", origin, "error", err)
 				return false
 			}
 
-			// In development, allow localhost connections
-			// In production, you should check against allowed origins from config
-			host := originURL.Host
-			if host == "" {
+			originHost := originURL.Host
+			if originHost == "" {
+				logger.Warn("Empty origin host", "origin", origin)
 				return false
 			}
+
+			// Normalize hosts for comparison (remove port if default)
+			normalizeHost := func(host string) string {
+				host = strings.TrimSuffix(host, ":80")
+				host = strings.TrimSuffix(host, ":443")
+				return host
+			}
+
+			normalizedOriginHost := normalizeHost(originHost)
+			normalizedAppHost := normalizeHost(appHost)
 
 			// Check allowed origins from config
 			allowedOrigins := h.config.App.WebSocket.AllowedOrigins
@@ -105,59 +124,73 @@ func (h *WebSocket) HandleWebSocket(ctx echo.Context) error {
 					if err != nil {
 						continue
 					}
-					if host == allowedURL.Host || host == appHost {
+					allowedHost := normalizeHost(allowedURL.Host)
+					// Match host exactly (with or without port)
+					if normalizedOriginHost == allowedHost || originHost == allowedURL.Host {
+						logger.Debug("Origin allowed by config", "origin", origin, "allowed", allowed)
 						return true
 					}
 				}
-				// Also allow same origin
-				return host == appHost
 			}
 
-			// Fallback: Allow same origin and localhost for development (if no config)
-			return host == appHost ||
-				host == "localhost:8000" ||
-				host == "127.0.0.1:8000" ||
-				originURL.Scheme == "http" && (host == "localhost" || host == "127.0.0.1")
+			// Allow same origin
+			if normalizedOriginHost == normalizedAppHost || originHost == appHost {
+				logger.Debug("Origin matches app host", "origin_host", originHost, "app_host", appHost)
+				return true
+			}
+
+			// Fallback: Allow localhost connections for development
+			if h.config.App.Environment == "local" || h.config.App.Environment == "dev" {
+				allowed := normalizedOriginHost == "localhost" ||
+					normalizedOriginHost == "127.0.0.1" ||
+					originHost == "localhost:8000" ||
+					originHost == "127.0.0.1:8000" ||
+					originHost == "localhost" ||
+					originHost == "127.0.0.1" ||
+					(originURL.Scheme == "http" && (normalizedOriginHost == "localhost" || normalizedOriginHost == "127.0.0.1"))
+				if allowed {
+					logger.Debug("Origin allowed for development", "origin", origin)
+					return true
+				}
+			}
+
+			logger.Warn("Origin not allowed", "origin", origin, "origin_host", originHost, "app_host", appHost)
+			return false
 		},
 	}
 
-	logger.Info("Upgrading connection to WebSocket", "user_id", userEntity.ID)
 	wsConn, err := upgrader.Upgrade(ctx.Response(), ctx.Request(), nil)
 	if err != nil {
 		logger.Error("WebSocket upgrade failed", "error", err, "user_id", userEntity.ID)
 		return err
 	}
-	logger.Info("WebSocket connection upgraded successfully", "user_id", userEntity.ID)
+
+	// Create a new context for WebSocket connection that won't be canceled
+	// The HTTP request context is canceled after the upgrade, so we need a separate context
+	// that will live for the lifetime of the WebSocket connection
+	wsCtx := context.Background()
 
 	// Create connection with context and ORM
-	logger.Info("Creating WebSocket connection object", "user_id", userEntity.ID)
 	conn := &ws.Connection{
 		WS:     wsConn,
 		Send:   make(chan []byte, 256),
 		UserID: int64(userEntity.ID),
 		Hub:    h.hub,
-		Ctx:    ctx.Request().Context(),
+		Ctx:    wsCtx, // Use WebSocket-specific context that won't be canceled
 		ORM:    h.hub.ORM,
 		Logger: logger,
 	}
 
 	// Register connection
-	logger.Info("Registering WebSocket connection", "user_id", conn.UserID)
 	h.hub.Register(conn)
-	logger.Info("WebSocket connection registered", "user_id", conn.UserID, "active_connections", h.hub.GetConnectionCount())
 
 	// Start connection pumps
-	logger.Info("Starting WebSocket pumps", "user_id", conn.UserID)
 	go conn.WritePump()
 	go conn.ReadPump()
 
 	// Send online status
-	logger.Info("Broadcasting user online event", "user_id", conn.UserID)
 	onlineEvent := ws.UserOnlineEvent(conn.UserID)
 	h.hub.Broadcast(onlineEvent.ToJSON())
-
-	logger.Info("WebSocket connection established and ready", "user_id", conn.UserID)
-	logger.Info("=== WEBSOCKET HANDLER END ===")
 
 	return nil
 }

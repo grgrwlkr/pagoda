@@ -2,7 +2,9 @@ package messenger
 
 import (
 	"github.com/labstack/echo/v4"
+	"github.com/mikestefanello/pagoda/pkg/form"
 	"github.com/mikestefanello/pagoda/pkg/ui"
+	messengerForms "github.com/mikestefanello/pagoda/pkg/ui/forms/messenger"
 	messengerLayouts "github.com/mikestefanello/pagoda/pkg/ui/layouts"
 	. "maragu.dev/gomponents"
 	. "maragu.dev/gomponents/html"
@@ -13,18 +15,14 @@ func WorkspaceCreate(ctx echo.Context) error {
 	r := ui.NewRequest(ctx)
 	r.Title = "Create Workspace"
 
-	// Формируем путь для создания workspace
-	createPath := "/workspace"
-	func() {
-		defer func() {
-			_ = recover()
-		}()
-		if r != nil && r.Context != nil {
-			if path := r.Path("messenger.workspace.create"); path != "" && path != "/" {
-				createPath = path
-			}
-		}
-	}()
+	// Get form from context (will be new form or form with validation errors)
+	form := form.Get[messengerForms.WorkspaceForm](ctx)
+
+	// Get create path
+	createPath := r.Path("messenger.workspace.create")
+	if createPath == "" || createPath == "/" {
+		createPath = "/workspace"
+	}
 
 	content := Div(
 		Class("flex flex-col items-center justify-center h-full p-8"),
@@ -65,9 +63,26 @@ func WorkspaceCreate(ctx echo.Context) error {
 						Name("name"),
 						Placeholder("My Workspace"),
 						Class("input input-bordered w-full"),
+						If(form.FieldHasErrors("Name"), Class("input-error")),
+						If(form.Name != "", Value(form.Name)),
 						Required(),
 						Attr("autofocus"),
 					),
+					// Show validation errors
+					If(form.FieldHasErrors("Name"), func() Node {
+						errs := form.GetFieldErrors("Name")
+						g := make(Group, len(errs))
+						for i, err := range errs {
+							g[i] = Div(
+								Class("label"),
+								Span(
+									Class("label-text-alt text-error"),
+									Text(err),
+								),
+							)
+						}
+						return Group(g)
+					}()),
 				),
 				// Description field (optional)
 				Div(
@@ -82,8 +97,25 @@ func WorkspaceCreate(ctx echo.Context) error {
 						Name("description"),
 						Placeholder("A brief description of your workspace"),
 						Class("textarea textarea-bordered w-full"),
+						If(form.FieldHasErrors("Description"), Class("textarea-error")),
+						If(form.Description != "", Text(form.Description)),
 						Rows("3"),
 					),
+					// Show validation errors
+					If(form.FieldHasErrors("Description"), func() Node {
+						errs := form.GetFieldErrors("Description")
+						g := make(Group, len(errs))
+						for i, err := range errs {
+							g[i] = Div(
+								Class("label"),
+								Span(
+									Class("label-text-alt text-error"),
+									Text(err),
+								),
+							)
+						}
+						return Group(g)
+					}()),
 				),
 				// Submit button
 				Button(

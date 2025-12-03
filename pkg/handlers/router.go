@@ -58,18 +58,29 @@ func BuildRouter(c *services.Container) error {
 	// In development (localhost), Secure cookies won't work over HTTP
 	cookieStore.Options.Secure = c.Config.HTTP.TLS.Enabled
 
+	// Skipper function to exclude WebSocket routes from certain middleware
+	skipWebSocket := func(ctx echo.Context) bool {
+		path := ctx.Request().URL.Path
+		// Skip WebSocket routes
+		return path == "/ws" || strings.HasPrefix(path, "/ws/")
+	}
+
 	g.Use(
 		echomw.RemoveTrailingSlashWithConfig(echomw.TrailingSlashConfig{
 			RedirectCode: http.StatusMovedPermanently,
+			Skipper:      skipWebSocket, // Skip redirects for WebSocket connections
 		}),
 		echomw.Recover(),
 		echomw.Secure(),
 		echomw.RequestID(),
 		middleware.SetLogger(),
 		middleware.LogRequest(),
-		echomw.Gzip(),
+		echomw.GzipWithConfig(echomw.GzipConfig{
+			Skipper: skipWebSocket, // Skip compression for WebSocket connections
+		}),
 		echomw.TimeoutWithConfig(echomw.TimeoutConfig{
 			Timeout: c.Config.App.Timeout,
+			Skipper: skipWebSocket, // Skip timeout for WebSocket connections (they are long-lived)
 		}),
 		middleware.Config(c.Config),
 		middleware.Session(cookieStore),
@@ -80,6 +91,7 @@ func BuildRouter(c *services.Container) error {
 			CookieSecure:   c.Config.HTTP.TLS.Enabled, // Only use Secure in production
 			CookieSameSite: http.SameSiteStrictMode,
 			ContextKey:     context.CSRFKey,
+			Skipper:        skipWebSocket, // Skip CSRF for WebSocket connections (they use session auth)
 		}),
 	)
 

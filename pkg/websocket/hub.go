@@ -101,13 +101,12 @@ func (h *Hub) Run() {
 			if _, ok := h.connections[conn.UserID]; ok {
 				// Удаляем соединение из map
 				delete(h.connections, conn.UserID)
-				// Закрываем канал отправки сообщений
-				// Это сигнализирует WritePump, что нужно закрыть соединение
-				close(conn.Send)
 				connectionCount := len(h.connections)
 				slog.Info("Connection unregistered", "user_id", conn.UserID, "total_connections", connectionCount)
 			}
 			h.mu.Unlock() // Разблокируем
+			// Закрываем соединение (защищено sync.Once, безопасно вызывать несколько раз)
+			conn.Close()
 
 		case message := <-h.broadcast:
 			// Сообщение для широковещательной рассылки всем подключенным пользователям
@@ -302,6 +301,72 @@ func (h *Hub) SendToChannel(channelID int64, message []byte) {
 	}
 	h.mu.RUnlock() // Разблокируем
 	slog.Info("Message sent to channel members", "channel_id", channelID, "sent_to", sentCount, "total_members", len(members))
+}
+
+// SendToChannelExcluding отправляет сообщение всем пользователям в канале, исключая указанного пользователя
+// Используется для событий, которые не должны получать инициатор действия
+// Параметры:
+//   - channelID: ID канала
+//   - excludeUserID: ID пользователя, которого нужно исключить из рассылки
+//   - message: JSON байты сообщения для отправки
+func (h *Hub) SendToChannelExcluding(channelID, excludeUserID int64, message []byte) {
+	slog.Info("Sending message to channel", "channel_id", channelID, "exclude_user_id", excludeUserID)
+
+	// Получаем список участников канала из базы данных
+	slog.Debug("Loading channel members", "channel_id", channelID)
+	members, err := h.ORM.ChannelMember.
+		Query().                                          // Начинаем запрос
+		Where(channelmember.ChannelIDEQ(int(channelID))). // Фильтр: только участники этого канала
+		All(context.Background())                         // Получаем всех участников (используем Background context, так как это не HTTP запрос)
+
+	if err != nil {
+		// Если не удалось получить участников, используем fallback - рассылаем всем, кроме исключенного
+		slog.Error("Failed to get channel members, falling back to broadcast", "channel_id", channelID, "error", err)
+		h.mu.RLock() // Блокируем для чтения
+		sentCount := 0
+		for userID, conn := range h.connections {
+			if userID != excludeUserID {
+				select {
+				case conn.Send <- message:
+					sentCount++
+				default:
+					// Соединение "мёртвое" - закрываем и удаляем
+					close(conn.Send)
+					delete(h.connections, userID)
+				}
+			}
+		}
+		h.mu.RUnlock() // Разблокируем
+		slog.Info("Message broadcasted to all (fallback, excluding user)", "channel_id", channelID, "sent_to", sentCount, "exclude_user_id", excludeUserID)
+		return
+	}
+	slog.Info("Channel members loaded", "channel_id", channelID, "members_count", len(members))
+
+	// Создаём set (map) ID пользователей, которые являются участниками канала
+	memberUserIDs := make(map[int64]bool)
+	for _, member := range members {
+		memberUserIDs[int64(member.UserID)] = true
+	}
+
+	// Отправляем сообщение только участникам канала, которые онлайн, исключая указанного пользователя
+	h.mu.RLock() // Блокируем для чтения
+	sentCount := 0
+	for userID, conn := range h.connections {
+		if memberUserIDs[userID] && userID != excludeUserID {
+			// Пользователь является участником канала, онлайн, и не исключен
+			select {
+			case conn.Send <- message:
+				sentCount++
+			default:
+				// Соединение "мёртвое"
+				slog.Warn("Failed to send message to channel member, closing connection", "channel_id", channelID, "user_id", userID)
+				close(conn.Send)
+				delete(h.connections, userID)
+			}
+		}
+	}
+	h.mu.RUnlock() // Разблокируем
+	slog.Info("Message sent to channel members", "channel_id", channelID, "sent_to", sentCount, "total_members", len(members), "exclude_user_id", excludeUserID)
 }
 
 // Register регистрирует новое соединение
