@@ -276,6 +276,7 @@ func (h *Messenger) Routes(g *echo.Group) {
 	g.DELETE("/message/:id", h.MessageDelete).Name = routenames.MessengerMessageDelete
 	g.GET("/message/:id/replies", h.MessageReplies).Name = routenames.MessengerMessageReplies
 	g.POST("/message/:id/replies", h.MessageReply).Name = routenames.MessengerMessageReply
+	g.GET("/message/:id/thread", h.MessageThread).Name = routenames.MessengerMessageThread
 
 	// Direct Message routes
 	g.GET("/dms", h.DMList).Name = routenames.MessengerDMList
@@ -988,6 +989,7 @@ func (h *Messenger) ChannelView(ctx echo.Context) error {
 			EditedAt:    msg.EditedAt,
 			Reactions:   reactionData,
 			Attachments: attachmentData,
+			ReplyCount:  msg.ReplyCount,
 		}
 	}
 
@@ -1821,6 +1823,9 @@ func (h *Messenger) MessageDelete(ctx echo.Context) error {
 
 // MessageReplies returns replies to a message (thread)
 func (h *Messenger) MessageReplies(ctx echo.Context) error {
+	logger := log.Ctx(ctx)
+	logger.Info("Getting message replies")
+
 	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid message ID")
@@ -1840,13 +1845,282 @@ func (h *Messenger) MessageReplies(ctx echo.Context) error {
 		Query().
 		Where(message.ThreadIDEQ(id)).
 		Order(ent.Asc(message.FieldCreatedAt)).
+		WithUser().
+		WithAttachments().
 		All(ctx.Request().Context())
 
 	if err != nil {
+		logger.Error("Failed to fetch replies", "error", err, "message_id", id)
 		return fail(err, "failed to fetch replies")
 	}
 
+	// If HTMX request, return HTML
+	if ctx.Request().Header.Get("HX-Request") != "" {
+		r := ui.NewRequest(ctx)
+
+		// Convert to MessageData
+		replyData := make([]messengerComponents.MessageData, len(replies))
+		for i, reply := range replies {
+			// Get reactions
+			reactions, err := h.orm.Reaction.
+				Query().
+				Where(reaction.MessageIDEQ(reply.ID)).
+				WithUser().
+				All(ctx.Request().Context())
+
+			if err != nil {
+				reactions = []*ent.Reaction{}
+			}
+
+			// Group reactions by emoji
+			reactionMap := make(map[string]*messengerComponents.ReactionData)
+			for _, r := range reactions {
+				if existing, ok := reactionMap[r.Emoji]; ok {
+					existing.Count++
+					existing.UserIDs = append(existing.UserIDs, int64(r.UserID))
+				} else {
+					reactionMap[r.Emoji] = &messengerComponents.ReactionData{
+						Emoji:   r.Emoji,
+						Count:   1,
+						UserIDs: []int64{int64(r.UserID)},
+					}
+				}
+			}
+
+			reactionData := make([]messengerComponents.ReactionData, 0, len(reactionMap))
+			for _, r := range reactionMap {
+				reactionData = append(reactionData, *r)
+			}
+
+			// Convert attachments
+			attachmentData := make([]messengerComponents.FileAttachmentData, len(reply.Edges.Attachments))
+			for j, att := range reply.Edges.Attachments {
+				attachmentURL := fmt.Sprintf("/attachment/%d", att.ID)
+				attachmentData[j] = messengerComponents.FileAttachmentData{
+					ID:       int64(att.ID),
+					Filename: att.Filename,
+					MimeType: att.MimeType,
+					FileSize: att.FileSize,
+					URL:      attachmentURL,
+				}
+			}
+
+			replyData[i] = messengerComponents.MessageData{
+				ID:          int64(reply.ID),
+				Content:     reply.Content,
+				UserID:      int64(reply.UserID),
+				UserName:    reply.Edges.User.Name,
+				CreatedAt:   reply.CreatedAt,
+				EditedAt:    reply.EditedAt,
+				Reactions:   reactionData,
+				Attachments: attachmentData,
+				ReplyCount:  0, // Replies don't have their own replies
+			}
+		}
+
+		// Render replies
+		var buf bytes.Buffer
+		for _, reply := range replyData {
+			if err := messengerComponents.MessageItem(r, reply).Render(&buf); err != nil {
+				logger.Error("Failed to render reply", "error", err)
+				continue
+			}
+		}
+
+		return ctx.HTML(http.StatusOK, buf.String())
+	}
+
 	return ctx.JSON(http.StatusOK, replies)
+}
+
+// MessageThread renders the thread view page
+func (h *Messenger) MessageThread(ctx echo.Context) error {
+	logger := log.Ctx(ctx)
+	logger.Info("=== MESSAGE THREAD VIEW START ===")
+
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		logger.Error("Invalid message ID", "error", err, "id_param", ctx.Param("id"))
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid message ID")
+	}
+	logger.Info("Viewing thread", "message_id", id)
+
+	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+	logger.Info("User viewing thread", "user_id", user.ID, "user_name", user.Name)
+
+	// Get parent message
+	logger.Info("Loading parent message", "message_id", id)
+	parentMsg, err := h.orm.Message.
+		Query().
+		Where(message.IDEQ(id)).
+		WithUser().
+		WithChannel().
+		WithAttachments().
+		Only(ctx.Request().Context())
+
+	if err != nil {
+		if ent.IsNotFound(err) {
+			logger.Warn("Thread view failed: message not found", "message_id", id)
+			return echo.NewHTTPError(http.StatusNotFound, "message not found")
+		}
+		logger.Error("Failed to get parent message", "error", err, "message_id", id)
+		return fail(err, "failed to get message")
+	}
+	logger.Info("Parent message loaded", "message_id", parentMsg.ID, "channel_id", parentMsg.ChannelID)
+
+	// Check if user is a member of the channel
+	isMember, err := h.orm.ChannelMember.
+		Query().
+		Where(
+			channelmember.ChannelIDEQ(parentMsg.ChannelID),
+			channelmember.UserIDEQ(int(user.ID)),
+		).
+		Exist(ctx.Request().Context())
+
+	if err != nil {
+		logger.Error("Failed to check channel membership", "error", err)
+		return fail(err, "failed to check channel membership")
+	}
+
+	if !isMember {
+		logger.Warn("Thread view failed: user not a channel member", "message_id", id, "channel_id", parentMsg.ChannelID, "user_id", user.ID)
+		return echo.NewHTTPError(http.StatusForbidden, "you are not a member of this channel")
+	}
+	logger.Info("User verified as channel member", "channel_id", parentMsg.ChannelID)
+
+	// Get sidebar data
+	logger.Info("Loading sidebar data", "channel_id", parentMsg.ChannelID, "workspace_id", parentMsg.Edges.Channel.WorkspaceID, "user_id", user.ID)
+	activeChannelID := &parentMsg.ChannelID
+	sidebarData, err := h.getSidebarData(ctx, parentMsg.Edges.Channel.WorkspaceID, int(user.ID), activeChannelID, nil)
+	if err != nil {
+		logger.Error("Failed to load sidebar data", "error", err)
+		return fail(err, "failed to load sidebar data")
+	}
+	logger.Info("Sidebar data loaded", "channels_count", len(sidebarData.Channels), "dms_count", len(sidebarData.DirectMessages))
+	ctx.Set(context.MessengerSidebarKey, sidebarData)
+
+	// Get replies
+	logger.Info("Loading thread replies", "message_id", id)
+	replies, err := h.orm.Message.
+		Query().
+		Where(message.ThreadIDEQ(id)).
+		Order(ent.Asc(message.FieldCreatedAt)).
+		WithUser().
+		WithAttachments().
+		All(ctx.Request().Context())
+
+	if err != nil {
+		logger.Error("Failed to load replies", "error", err, "message_id", id)
+		return fail(err, "failed to load replies")
+	}
+	logger.Info("Replies loaded", "message_id", id, "replies_count", len(replies))
+
+	// Convert parent message to MessageData
+	parentReactions, _ := h.orm.Reaction.
+		Query().
+		Where(reaction.MessageIDEQ(parentMsg.ID)).
+		WithUser().
+		All(ctx.Request().Context())
+
+	reactionMap := make(map[string]*messengerComponents.ReactionData)
+	for _, r := range parentReactions {
+		if existing, ok := reactionMap[r.Emoji]; ok {
+			existing.Count++
+			existing.UserIDs = append(existing.UserIDs, int64(r.UserID))
+		} else {
+			reactionMap[r.Emoji] = &messengerComponents.ReactionData{
+				Emoji:   r.Emoji,
+				Count:   1,
+				UserIDs: []int64{int64(r.UserID)},
+			}
+		}
+	}
+
+	reactionData := make([]messengerComponents.ReactionData, 0, len(reactionMap))
+	for _, r := range reactionMap {
+		reactionData = append(reactionData, *r)
+	}
+
+	attachmentData := make([]messengerComponents.FileAttachmentData, len(parentMsg.Edges.Attachments))
+	for j, att := range parentMsg.Edges.Attachments {
+		attachmentURL := fmt.Sprintf("/attachment/%d", att.ID)
+		attachmentData[j] = messengerComponents.FileAttachmentData{
+			ID:       int64(att.ID),
+			Filename: att.Filename,
+			MimeType: att.MimeType,
+			FileSize: att.FileSize,
+			URL:      attachmentURL,
+		}
+	}
+
+	parentData := messengerComponents.MessageData{
+		ID:          int64(parentMsg.ID),
+		Content:     parentMsg.Content,
+		UserID:      int64(parentMsg.UserID),
+		UserName:    parentMsg.Edges.User.Name,
+		CreatedAt:   parentMsg.CreatedAt,
+		EditedAt:    parentMsg.EditedAt,
+		Reactions:   reactionData,
+		Attachments: attachmentData,
+		ReplyCount:  parentMsg.ReplyCount,
+	}
+
+	// Convert replies to MessageData
+	replyData := make([]messengerComponents.MessageData, len(replies))
+	for i, reply := range replies {
+		replyReactions, _ := h.orm.Reaction.
+			Query().
+			Where(reaction.MessageIDEQ(reply.ID)).
+			WithUser().
+			All(ctx.Request().Context())
+
+		replyReactionMap := make(map[string]*messengerComponents.ReactionData)
+		for _, r := range replyReactions {
+			if existing, ok := replyReactionMap[r.Emoji]; ok {
+				existing.Count++
+				existing.UserIDs = append(existing.UserIDs, int64(r.UserID))
+			} else {
+				replyReactionMap[r.Emoji] = &messengerComponents.ReactionData{
+					Emoji:   r.Emoji,
+					Count:   1,
+					UserIDs: []int64{int64(r.UserID)},
+				}
+			}
+		}
+
+		replyReactionData := make([]messengerComponents.ReactionData, 0, len(replyReactionMap))
+		for _, r := range replyReactionMap {
+			replyReactionData = append(replyReactionData, *r)
+		}
+
+		replyAttachmentData := make([]messengerComponents.FileAttachmentData, len(reply.Edges.Attachments))
+		for j, att := range reply.Edges.Attachments {
+			attachmentURL := fmt.Sprintf("/attachment/%d", att.ID)
+			replyAttachmentData[j] = messengerComponents.FileAttachmentData{
+				ID:       int64(att.ID),
+				Filename: att.Filename,
+				MimeType: att.MimeType,
+				FileSize: att.FileSize,
+				URL:      attachmentURL,
+			}
+		}
+
+		replyData[i] = messengerComponents.MessageData{
+			ID:          int64(reply.ID),
+			Content:     reply.Content,
+			UserID:      int64(reply.UserID),
+			UserName:    reply.Edges.User.Name,
+			CreatedAt:   reply.CreatedAt,
+			EditedAt:    reply.EditedAt,
+			Reactions:   replyReactionData,
+			Attachments: replyAttachmentData,
+			ReplyCount:  0,
+		}
+	}
+
+	logger.Info("Rendering thread page", "message_id", id, "channel_id", parentMsg.ChannelID, "replies_count", len(replyData))
+	logger.Info("=== MESSAGE THREAD VIEW END ===")
+	return messengerPages.Thread(ctx, int64(parentMsg.ChannelID), parentData, replyData)
 }
 
 // MessageReply creates a reply to a message (thread)
@@ -1932,6 +2206,80 @@ func (h *Messenger) MessageReply(ctx echo.Context) error {
 		h.hub.SendToChannel(int64(parentMsg.ChannelID), event.ToJSON())
 	}
 
+	// If HTMX request, return HTML for the new reply
+	if ctx.Request().Header.Get("HX-Request") != "" {
+		logger.Info("HTMX request detected, returning HTML reply item")
+		// Load user for message display
+		replyWithUser, err := h.orm.Message.Query().Where(message.IDEQ(reply.ID)).WithUser().WithAttachments().Only(ctx.Request().Context())
+		if err != nil {
+			logger.Warn("Failed to load user for reply, using basic data", "error", err)
+			replyWithUser = reply
+		}
+
+		// Get reactions
+		reactions, _ := h.orm.Reaction.
+			Query().
+			Where(reaction.MessageIDEQ(reply.ID)).
+			WithUser().
+			All(ctx.Request().Context())
+
+		reactionMap := make(map[string]*messengerComponents.ReactionData)
+		for _, r := range reactions {
+			if existing, ok := reactionMap[r.Emoji]; ok {
+				existing.Count++
+				existing.UserIDs = append(existing.UserIDs, int64(r.UserID))
+			} else {
+				reactionMap[r.Emoji] = &messengerComponents.ReactionData{
+					Emoji:   r.Emoji,
+					Count:   1,
+					UserIDs: []int64{int64(r.UserID)},
+				}
+			}
+		}
+
+		reactionData := make([]messengerComponents.ReactionData, 0, len(reactionMap))
+		for _, r := range reactionMap {
+			reactionData = append(reactionData, *r)
+		}
+
+		// Convert attachments
+		attachmentData := make([]messengerComponents.FileAttachmentData, len(replyWithUser.Edges.Attachments))
+		for j, att := range replyWithUser.Edges.Attachments {
+			attachmentURL := fmt.Sprintf("/attachment/%d", att.ID)
+			attachmentData[j] = messengerComponents.FileAttachmentData{
+				ID:       int64(att.ID),
+				Filename: att.Filename,
+				MimeType: att.MimeType,
+				FileSize: att.FileSize,
+				URL:      attachmentURL,
+			}
+		}
+
+		// Convert to MessageData
+		messageData := messengerComponents.MessageData{
+			ID:          int64(reply.ID),
+			Content:     reply.Content,
+			UserID:      int64(reply.UserID),
+			UserName:    replyWithUser.Edges.User.Name,
+			CreatedAt:   reply.CreatedAt,
+			EditedAt:    reply.EditedAt,
+			Reactions:   reactionData,
+			Attachments: attachmentData,
+			ReplyCount:  0, // Replies don't have their own replies
+		}
+
+		r := ui.NewRequest(ctx)
+		messageItem := messengerComponents.MessageItem(r, messageData)
+		var buf bytes.Buffer
+		if err := messageItem.Render(&buf); err != nil {
+			logger.Error("Failed to render reply item", "error", err)
+			return fail(err, "failed to render reply")
+		}
+		logger.Info("=== MESSAGE REPLY END ===")
+		return ctx.HTML(http.StatusOK, buf.String())
+	}
+
+	logger.Info("Non-HTMX request, returning JSON", "reply_id", reply.ID)
 	logger.Info("=== MESSAGE REPLY END ===")
 	return ctx.JSON(http.StatusCreated, reply)
 }
@@ -2432,6 +2780,7 @@ func (h *Messenger) DMMessageCreate(ctx echo.Context) error {
 			}
 		}
 
+		// Load message with reply count (DM messages don't have threads, so reply_count is 0)
 		// Convert to MessageData
 		messageData := messengerComponents.MessageData{
 			ID:          int64(msg.ID),
@@ -2442,6 +2791,7 @@ func (h *Messenger) DMMessageCreate(ctx echo.Context) error {
 			EditedAt:    nil,                                  // DM messages don't have EditedAt
 			Reactions:   []messengerComponents.ReactionData{}, // DM messages don't have reactions
 			Attachments: attachmentData,
+			ReplyCount:  0, // DM messages don't have threads
 		}
 
 		r := ui.NewRequest(ctx)

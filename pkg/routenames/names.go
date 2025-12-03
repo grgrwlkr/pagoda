@@ -60,6 +60,7 @@ const (
 	MessengerMessageDelete  = "messenger.message.delete"
 	MessengerMessageReplies = "messenger.message.replies"
 	MessengerMessageReply   = "messenger.message.reply"
+	MessengerMessageThread  = "messenger.message.thread"
 
 	// Direct Message routes
 	MessengerDMList          = "messenger.dm.list"

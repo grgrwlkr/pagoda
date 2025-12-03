@@ -27,6 +27,7 @@ type MessageData struct {
 	EditedAt    *time.Time
 	Reactions   []ReactionData
 	Attachments []FileAttachmentData
+	ReplyCount  int // Number of replies in thread
 }
 
 type ReactionData struct {
@@ -97,6 +98,94 @@ func messageItem(r *ui.Request, msg MessageData) Node {
 					Class("flex flex-wrap gap-1 mt-2"),
 					Group(renderReactions(r, msg.Reactions, msg.ID)),
 				),
+			),
+			// Thread actions
+			Div(
+				Class("flex items-center gap-2 mt-2 text-sm"),
+				// Reply button
+				Button(
+					Class("btn btn-ghost btn-sm gap-1"),
+					Attr("hx-get", r.Path("messenger.message.replies", msg.ID)),
+					Attr("hx-target", fmt.Sprintf("#thread-%d", msg.ID)),
+					Attr("hx-swap", "innerHTML"),
+					Attr("onclick", fmt.Sprintf("document.getElementById('thread-reply-form-%d').classList.toggle('hidden'); return false;", msg.ID)),
+					Text("💬 Reply"),
+				),
+				// Reply count (if any)
+				If(msg.ReplyCount > 0,
+					A(
+						Href(r.Path("messenger.message.thread", msg.ID)),
+						Class("text-base-content/60 hover:text-base-content"),
+						Text(fmt.Sprintf("%d %s", msg.ReplyCount, pluralize(msg.ReplyCount, "reply", "replies"))),
+					),
+				),
+			),
+			// Thread replies container (initially hidden)
+			Div(
+				ID(fmt.Sprintf("thread-%d", msg.ID)),
+				Class("mt-2 ml-8 border-l-2 border-base-300 pl-4"),
+			),
+			// Thread reply form (initially hidden)
+			Div(
+				ID(fmt.Sprintf("thread-reply-form-%d", msg.ID)),
+				Class("hidden mt-2 ml-8"),
+				renderThreadReplyForm(r, msg.ID),
+			),
+		),
+	)
+}
+
+func pluralize(count int, singular, plural string) string {
+	if count == 1 {
+		return singular
+	}
+	return plural
+}
+
+func renderThreadReplyForm(r *ui.Request, messageID int64) Node {
+	return Form(
+		Class("flex gap-2"),
+		Method("POST"),
+		Action(r.Path("messenger.message.reply", messageID)),
+		Attr("hx-post", r.Path("messenger.message.reply", messageID)),
+		Attr("hx-target", fmt.Sprintf("#thread-%d", messageID)),
+		Attr("hx-swap", "beforeend"),
+		Attr("hx-on::after-request", "this.querySelector('textarea').value = ''; this.querySelector('textarea').style.height = 'auto';"),
+		// CSRF token
+		If(r.CSRF != "", Input(
+			Type("hidden"),
+			Name("csrf"),
+			Value(r.CSRF),
+		)),
+		Div(
+			Class("flex-1"),
+			Textarea(
+				Name("content"),
+				Class("textarea textarea-bordered w-full resize-none text-sm"),
+				Placeholder("Write a reply..."),
+				Rows("2"),
+				Required(),
+				Attr("x-data", `{
+					resize() {
+						this.$el.style.height = "auto";
+						this.$el.style.height = this.$el.scrollHeight + "px";
+					}
+				}`),
+				Attr("@input", "resize()"),
+			),
+		),
+		Div(
+			Class("flex flex-col gap-2"),
+			Button(
+				Type("submit"),
+				Class("btn btn-primary btn-sm"),
+				Text("Reply"),
+			),
+			Button(
+				Type("button"),
+				Class("btn btn-ghost btn-sm"),
+				Attr("onclick", fmt.Sprintf("document.getElementById('thread-reply-form-%d').classList.add('hidden');", messageID)),
+				Text("Cancel"),
 			),
 		),
 	)
