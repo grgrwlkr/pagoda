@@ -28,7 +28,6 @@ import (
 	"github.com/mikestefanello/pagoda/ent/workspacemember"
 	"github.com/mikestefanello/pagoda/pkg/context"
 	"github.com/mikestefanello/pagoda/pkg/log"
-	"github.com/mikestefanello/pagoda/pkg/middleware"
 	messengerMiddleware "github.com/mikestefanello/pagoda/pkg/middleware"
 	"github.com/mikestefanello/pagoda/pkg/pager"
 	"github.com/mikestefanello/pagoda/pkg/redirect"
@@ -245,7 +244,7 @@ func (h *Messenger) Routes(g *echo.Group) {
 	g.GET("/", h.RootRedirect).Name = routenames.MessengerRoot
 
 	// All other routes require authentication
-	g = g.Group("", middleware.RequireAuthentication)
+	g = g.Group("", messengerMiddleware.RequireAuthentication)
 
 	// Workspace routes
 	g.GET("/workspace", h.WorkspaceList).Name = routenames.MessengerWorkspaceList
@@ -1491,18 +1490,26 @@ func (h *Messenger) ChannelMessages(ctx echo.Context) error {
 
 // MessageCreate creates a new message in a channel
 func (h *Messenger) MessageCreate(ctx echo.Context) error {
+	logger := log.Ctx(ctx)
+	logger.Info("=== MESSAGE CREATE START ===")
+
 	channelID, err := strconv.Atoi(ctx.Param("channel_id"))
 	if err != nil {
+		logger.Error("Invalid channel ID", "error", err, "channel_id_param", ctx.Param("channel_id"))
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid channel ID")
 	}
+	logger.Info("Creating message in channel", "channel_id", channelID)
 
 	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+	logger.Info("User creating message", "user_id", user.ID, "user_name", user.Name)
 
 	// Parse form data
 	content := ctx.FormValue("content")
 	if content == "" {
+		logger.Warn("Message content is empty")
 		return echo.NewHTTPError(http.StatusBadRequest, "message content is required")
 	}
+	logger.Info("Message content parsed", "content_length", len(content))
 
 	msg, err := h.orm.Message.
 		Create().
@@ -1513,15 +1520,52 @@ func (h *Messenger) MessageCreate(ctx echo.Context) error {
 		Save(ctx.Request().Context())
 
 	if err != nil {
+		logger.Error("Failed to create message", "error", err, "channel_id", channelID, "user_id", user.ID)
 		return fail(err, "failed to create message")
 	}
+	logger.Info("Message created successfully", "message_id", msg.ID, "channel_id", channelID)
 
 	// Send WebSocket event to channel members
 	if h.hub != nil {
 		event := ws.MessageNewEvent(int64(msg.ID), int64(channelID), int64(user.ID), content)
 		h.hub.SendToChannel(int64(channelID), event.ToJSON())
+		logger.Info("WebSocket event sent", "message_id", msg.ID, "channel_id", channelID)
 	}
 
+	// If HTMX request, return HTML for the new message
+	if ctx.Request().Header.Get("HX-Request") != "" {
+		logger.Info("HTMX request detected, returning HTML message item")
+		// Load user for message display
+		msgWithUser, err := h.orm.Message.Query().Where(message.IDEQ(msg.ID)).WithUser().Only(ctx.Request().Context())
+		if err != nil {
+			logger.Warn("Failed to load user for message, using basic data", "error", err)
+			msgWithUser = msg
+		}
+
+		// Convert to MessageData
+		messageData := messengerComponents.MessageData{
+			ID:        int64(msg.ID),
+			Content:   msg.Content,
+			UserID:    int64(msg.UserID),
+			UserName:  msgWithUser.Edges.User.Name,
+			CreatedAt: msg.CreatedAt,
+			EditedAt:  msg.EditedAt,
+			Reactions: []messengerComponents.ReactionData{},
+		}
+
+		r := ui.NewRequest(ctx)
+		messageItem := messengerComponents.MessageItem(r, messageData)
+		var buf bytes.Buffer
+		if err := messageItem.Render(&buf); err != nil {
+			logger.Error("Failed to render message item", "error", err)
+			return fail(err, "failed to render message")
+		}
+		logger.Info("=== MESSAGE CREATE END ===")
+		return ctx.HTML(http.StatusOK, buf.String())
+	}
+
+	logger.Info("Non-HTMX request, returning JSON", "message_id", msg.ID)
+	logger.Info("=== MESSAGE CREATE END ===")
 	return ctx.JSON(http.StatusCreated, msg)
 }
 
@@ -1789,26 +1833,38 @@ func (h *Messenger) DMList(ctx echo.Context) error {
 
 // DMView shows a direct message conversation
 func (h *Messenger) DMView(ctx echo.Context) error {
+	logger := log.Ctx(ctx)
+	logger.Info("=== DM VIEW START ===")
+
 	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
+		logger.Error("Invalid DM ID", "error", err, "id_param", ctx.Param("id"))
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid DM ID")
 	}
+	logger.Info("Viewing direct message conversation", "dm_id", id)
 
 	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+	logger.Info("User viewing DM", "user_id", user.ID, "user_name", user.Name)
 
 	// Get DM
+	logger.Info("Loading DM conversation", "dm_id", id)
 	dm, err := h.orm.DirectMessage.Get(ctx.Request().Context(), id)
 	if err != nil {
 		if ent.IsNotFound(err) {
+			logger.Warn("Direct message not found", "dm_id", id)
 			return echo.NewHTTPError(http.StatusNotFound, "direct message not found")
 		}
+		logger.Error("Failed to get direct message", "error", err, "dm_id", id)
 		return fail(err, "failed to get direct message")
 	}
+	logger.Info("DM loaded", "dm_id", dm.ID, "user1_id", dm.User1ID, "user2_id", dm.User2ID)
 
 	// Check if user is part of this DM
 	if dm.User1ID != int(user.ID) && dm.User2ID != int(user.ID) {
+		logger.Warn("User not authorized to view this DM", "user_id", user.ID, "dm_id", id)
 		return echo.NewHTTPError(http.StatusForbidden, "you are not part of this conversation")
 	}
+	logger.Info("User verified as part of DM", "user_id", user.ID)
 
 	// Get other user
 	var otherUserID int
@@ -1817,13 +1873,85 @@ func (h *Messenger) DMView(ctx echo.Context) error {
 	} else {
 		otherUserID = dm.User1ID
 	}
+	logger.Info("Determined other user in DM", "other_user_id", otherUserID)
 
+	logger.Info("Loading other user", "other_user_id", otherUserID)
 	otherUser, err := h.orm.User.Get(ctx.Request().Context(), otherUserID)
 	if err != nil {
+		logger.Error("Failed to get other user", "error", err, "other_user_id", otherUserID)
 		return fail(err, "failed to get other user")
 	}
+	logger.Info("Other user loaded", "other_user_id", otherUser.ID, "other_user_name", otherUser.Name)
 
-	return messengerPages.DirectMessage(ctx, int64(id), otherUser.Name)
+	// Get sidebar data (for DM, we need workspace context - get from user's first workspace or use nil)
+	logger.Info("Loading sidebar data for DM view")
+	// For DM view, we don't have a specific workspace, so we'll get the first workspace or use empty sidebar
+	var sidebarData messengerComponents.SidebarData
+	workspaces, err := h.orm.WorkspaceMember.
+		Query().
+		Where(workspacemember.UserIDEQ(int(user.ID))).
+		QueryWorkspace().
+		Limit(1).
+		All(ctx.Request().Context())
+
+	if err == nil && len(workspaces) > 0 {
+		activeDMID := &id
+		sidebarData, err = h.getSidebarData(ctx, workspaces[0].ID, int(user.ID), nil, activeDMID)
+		if err != nil {
+			logger.Warn("Failed to load sidebar data for DM view, continuing without sidebar", "error", err)
+			sidebarData = messengerComponents.SidebarData{
+				Channels:       []messengerComponents.ChannelData{},
+				DirectMessages: []messengerComponents.DMData{},
+			}
+		}
+	} else {
+		sidebarData = messengerComponents.SidebarData{
+			Channels:       []messengerComponents.ChannelData{},
+			DirectMessages: []messengerComponents.DMData{},
+		}
+	}
+	logger.Info("Sidebar data prepared", "channels_count", len(sidebarData.Channels), "dms_count", len(sidebarData.DirectMessages))
+	ctx.Set(context.MessengerSidebarKey, sidebarData)
+
+	// Get messages (last 50)
+	logger.Info("Loading messages for DM", "dm_id", id)
+	dmMessages, err := h.orm.DirectMessageContent.
+		Query().
+		Where(directmessagecontent.DmIDEQ(id)).
+		Order(ent.Desc(directmessagecontent.FieldCreatedAt)).
+		Limit(50).
+		WithUser().
+		All(ctx.Request().Context())
+
+	if err != nil {
+		logger.Error("Failed to load DM messages", "error", err, "dm_id", id)
+		return fail(err, "failed to load messages")
+	}
+	logger.Info("DM messages loaded", "dm_id", id, "messages_count", len(dmMessages))
+
+	// Convert to MessageData
+	messageData := make([]messengerComponents.MessageData, len(dmMessages))
+	for i, msg := range dmMessages {
+		messageData[i] = messengerComponents.MessageData{
+			ID:        int64(msg.ID),
+			Content:   msg.Content,
+			UserID:    int64(msg.UserID),
+			UserName:  msg.Edges.User.Name,
+			CreatedAt: msg.CreatedAt,
+			EditedAt:  nil,                                  // DM messages don't have EditedAt
+			Reactions: []messengerComponents.ReactionData{}, // DM messages don't have reactions yet
+		}
+	}
+
+	// Reverse to show oldest first
+	for i, j := 0, len(messageData)-1; i < j; i, j = i+1, j-1 {
+		messageData[i], messageData[j] = messageData[j], messageData[i]
+	}
+	logger.Info("Messages converted and reversed", "dm_id", id, "messages_count", len(messageData))
+
+	logger.Info("Rendering direct message page", "dm_id", id, "other_user_name", otherUser.Name, "messages_count", len(messageData))
+	logger.Info("=== DM VIEW END ===")
+	return messengerPages.DirectMessage(ctx, int64(id), otherUser.Name, messageData)
 }
 
 // DMCreate creates or retrieves a direct message conversation
@@ -2032,8 +2160,42 @@ func (h *Messenger) DMMessageCreate(ctx echo.Context) error {
 			},
 		}
 		h.hub.SendToUser(int64(otherUserID), event.ToJSON())
+		logger.Info("WebSocket event sent for new DM message", "message_id", msg.ID, "dm_id", id, "other_user_id", otherUserID)
 	}
 
+	// If HTMX request, return HTML for the new message
+	if ctx.Request().Header.Get("HX-Request") != "" {
+		logger.Info("HTMX request detected, returning HTML message item")
+		// Load user for message display
+		msgWithUser, err := h.orm.DirectMessageContent.Query().Where(directmessagecontent.IDEQ(msg.ID)).WithUser().Only(ctx.Request().Context())
+		if err != nil {
+			logger.Warn("Failed to load user for DM message, using basic data", "error", err)
+			msgWithUser = msg
+		}
+
+		// Convert to MessageData
+		messageData := messengerComponents.MessageData{
+			ID:        int64(msg.ID),
+			Content:   msg.Content,
+			UserID:    int64(msg.UserID),
+			UserName:  msgWithUser.Edges.User.Name,
+			CreatedAt: msg.CreatedAt,
+			EditedAt:  nil,                                  // DM messages don't have EditedAt
+			Reactions: []messengerComponents.ReactionData{}, // DM messages don't have reactions
+		}
+
+		r := ui.NewRequest(ctx)
+		messageItem := messengerComponents.MessageItem(r, messageData)
+		var buf bytes.Buffer
+		if err := messageItem.Render(&buf); err != nil {
+			logger.Error("Failed to render DM message item", "error", err)
+			return fail(err, "failed to render message")
+		}
+		logger.Info("=== DM MESSAGE CREATE END ===")
+		return ctx.HTML(http.StatusOK, buf.String())
+	}
+
+	logger.Info("Non-HTMX request, returning JSON", "message_id", msg.ID)
 	logger.Info("=== DM MESSAGE CREATE END ===")
 	return ctx.JSON(http.StatusCreated, msg)
 }

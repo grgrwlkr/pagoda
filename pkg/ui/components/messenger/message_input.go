@@ -7,14 +7,33 @@ import (
 )
 
 // MessageInput renders the message input form at the bottom of the chat
-func MessageInput(r *ui.Request, channelID int64) Node {
+// channelIDOrDMID: channel ID for channels, DM ID for direct messages
+// isDM: true if this is for a direct message, false for a channel
+func MessageInput(r *ui.Request, channelIDOrDMID int64, isDM bool) Node {
+	var actionRoute string
+	if isDM {
+		actionRoute = r.Path("messenger.dm.message.create", channelIDOrDMID)
+	} else {
+		actionRoute = r.Path("messenger.message.create", channelIDOrDMID)
+	}
+
 	return Div(
 		Class("border-t border-base-300 p-4 bg-base-100"),
 		Form(
 			Class("flex gap-2"),
 			ID("message-form"),
-			// TODO: Add WebSocket connection and message sending
-			// TODO: Add HTMX for form submission
+			Method("POST"),
+			Action(actionRoute),
+			Attr("hx-post", actionRoute),
+			Attr("hx-target", "#message-list"),
+			Attr("hx-swap", "beforeend"),
+			Attr("hx-on::after-request", "this.querySelector('textarea').value = ''; this.querySelector('textarea').style.height = 'auto';"),
+			// CSRF token
+			If(r.CSRF != "", Input(
+				Type("hidden"),
+				Name("csrf"),
+				Value(r.CSRF),
+			)),
 			Div(
 				Class("flex-1"),
 				Textarea(
@@ -23,6 +42,7 @@ func MessageInput(r *ui.Request, channelID int64) Node {
 					Class("textarea textarea-bordered w-full resize-none"),
 					Placeholder("Type a message..."),
 					Rows("1"),
+					Required(),
 					Attr("x-data", `{
 						resize() {
 							this.$el.style.height = "auto";
@@ -46,6 +66,7 @@ func MessageInput(r *ui.Request, channelID int64) Node {
 				// Send button
 				Button(
 					Type("submit"),
+					ID("message-send"),
 					Class("btn btn-primary btn-circle"),
 					Title("Send message"),
 					Text("➤"),

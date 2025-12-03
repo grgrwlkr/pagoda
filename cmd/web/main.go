@@ -19,6 +19,9 @@ import (
 func main() {
 	// This is now a Slack application built on Pagoda framework
 
+	// Initialize color logger
+	log.InitColorLogger()
+
 	// Start a new container.
 	c := services.NewContainer()
 	defer func() {

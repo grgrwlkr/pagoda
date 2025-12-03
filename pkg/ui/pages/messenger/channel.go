@@ -28,7 +28,7 @@ func Channel(ctx echo.Context, channelID int64, channelName string, messages []m
 			// TypingIndicator will be added via WebSocket updates
 		),
 		// Message input
-		messengerComponents.MessageInput(r, channelID),
+		messengerComponents.MessageInput(r, channelID, false), // false = not a DM
 		// WebSocket connection script
 		websocketScript(r, channelID),
 	)

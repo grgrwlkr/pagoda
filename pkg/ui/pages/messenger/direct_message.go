@@ -10,14 +10,9 @@ import (
 )
 
 // DirectMessage renders the direct message page
-func DirectMessage(ctx echo.Context, dmID int64, otherUserName string) error {
+func DirectMessage(ctx echo.Context, dmID int64, otherUserName string, messages []messengerComponents.MessageData) error {
 	r := ui.NewRequest(ctx)
 	r.Title = otherUserName
-
-	// TODO: Load messages from database
-	messages := []messengerComponents.MessageData{
-		// Example messages - will be replaced with real data
-	}
 
 	content := Div(
 		Class("flex flex-col h-full"),
@@ -31,7 +26,7 @@ func DirectMessage(ctx echo.Context, dmID int64, otherUserName string) error {
 			// TypingIndicator will be added via WebSocket updates
 		),
 		// Message input
-		messengerComponents.MessageInput(r, dmID), // Using dmID as channelID for now
+		messengerComponents.MessageInput(r, dmID, true), // true = is a DM
 	)
 
 	return r.Render(messengerLayouts.Messenger, content)

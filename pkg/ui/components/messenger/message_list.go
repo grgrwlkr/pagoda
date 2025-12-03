@@ -44,6 +44,11 @@ func renderMessages(r *ui.Request, messages []MessageData) Group {
 	return group
 }
 
+// MessageItem renders a single message item (exported for HTMX)
+func MessageItem(r *ui.Request, msg MessageData) Node {
+	return messageItem(r, msg)
+}
+
 func messageItem(r *ui.Request, msg MessageData) Node {
 	return Div(
 		Class("flex gap-3 hover:bg-base-200/50 p-2 rounded-lg transition-colors"),
@@ -80,14 +85,14 @@ func messageItem(r *ui.Request, msg MessageData) Node {
 			If(len(msg.Reactions) > 0,
 				Div(
 					Class("flex flex-wrap gap-1 mt-2"),
-					Group(renderReactions(r, msg.Reactions)),
+					Group(renderReactions(r, msg.Reactions, msg.ID)),
 				),
 			),
 		),
 	)
 }
 
-func renderReactions(r *ui.Request, reactions []ReactionData) Group {
+func renderReactions(r *ui.Request, reactions []ReactionData, messageID int64) Group {
 	group := make(Group, 0, len(reactions))
 
 	for _, reaction := range reactions {
@@ -96,7 +101,11 @@ func renderReactions(r *ui.Request, reactions []ReactionData) Group {
 				Class("btn btn-xs gap-1 hover:bg-base-300"),
 				Text(reaction.Emoji),
 				Text(fmt.Sprintf("%d", reaction.Count)),
-				// TODO: Add click handler to toggle reaction
+				Attr("hx-post", r.Path("messenger.reaction.add", messageID)),
+				Attr("hx-vals", fmt.Sprintf(`{"emoji": "%s"}`, reaction.Emoji)),
+				Attr("hx-target", fmt.Sprintf("#message-%d", messageID)),
+				Attr("hx-swap", "outerHTML"),
+				Title("Click to toggle reaction"),
 			),
 		)
 	}
