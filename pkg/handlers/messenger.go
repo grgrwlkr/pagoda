@@ -28,6 +28,7 @@ import (
 	"github.com/mikestefanello/pagoda/ent/workspace"
 	"github.com/mikestefanello/pagoda/ent/workspacemember"
 	"github.com/mikestefanello/pagoda/pkg/context"
+	"github.com/mikestefanello/pagoda/pkg/htmx"
 	"github.com/mikestefanello/pagoda/pkg/log"
 	messengerMiddleware "github.com/mikestefanello/pagoda/pkg/middleware"
 	"github.com/mikestefanello/pagoda/pkg/pager"
@@ -605,10 +606,10 @@ func (h *Messenger) WorkspaceCreate(ctx echo.Context) error {
 	logger.Info("Creator added as workspace owner", "workspace_id", workspaceEntity.ID, "user_id", user.ID)
 
 	// If HTMX request, close modal and redirect
-	if ctx.Request().Header.Get("HX-Request") != "" {
+	if htmx.GetRequest(ctx).Enabled {
 		redirectURL := ctx.Echo().Reverse(routenames.MessengerWorkspaceView, workspaceEntity.ID)
 		logger.Info("HTMX request detected, redirecting", "redirect_url", redirectURL, "workspace_id", workspaceEntity.ID)
-		ctx.Response().Header().Set("HX-Redirect", redirectURL)
+		htmx.Response{Redirect: redirectURL}.Apply(ctx)
 		logger.Info("=== WORKSPACE CREATE END ===")
 		return ctx.NoContent(http.StatusOK)
 	}
@@ -1226,17 +1227,17 @@ func (h *Messenger) ChannelCreate(ctx echo.Context) error {
 	}
 
 	// If HTMX request, close modal and redirect
-	if ctx.Request().Header.Get("HX-Request") != "" {
+	if htmx.GetRequest(ctx).Enabled {
 		// Проверяем, что Echo не nil перед вызовом Reverse
 		if echoInstance := ctx.Echo(); echoInstance != nil {
 			redirectURL := echoInstance.Reverse(routenames.MessengerChannelView, ch.ID)
 			logger.Info("HTMX request detected, redirecting", "redirect_url", redirectURL, "channel_id", ch.ID)
-			ctx.Response().Header().Set("HX-Redirect", redirectURL)
+			htmx.Response{Redirect: redirectURL}.Apply(ctx)
 		} else {
 			// Fallback: формируем URL вручную
 			redirectURL := fmt.Sprintf("/channel/%d", ch.ID)
 			logger.Warn("Echo instance is nil, using manual URL", "redirect_url", redirectURL, "channel_id", ch.ID)
-			ctx.Response().Header().Set("HX-Redirect", redirectURL)
+			htmx.Response{Redirect: redirectURL}.Apply(ctx)
 		}
 		logger.Info("=== CHANNEL CREATE END ===")
 		return ctx.NoContent(http.StatusOK)
@@ -1893,7 +1894,7 @@ func (h *Messenger) MessageCreate(ctx echo.Context) error {
 	}
 
 	// If HTMX request, return HTML for the new message
-	if ctx.Request().Header.Get("HX-Request") != "" {
+	if htmx.GetRequest(ctx).Enabled {
 		logger.Info("HTMX request detected, returning HTML message item")
 		// Load user for message display
 		msgWithUser, err := h.orm.Message.Query().Where(message.IDEQ(msg.ID)).WithUser().Only(ctx.Request().Context())
@@ -2101,7 +2102,7 @@ func (h *Messenger) MessageReplies(ctx echo.Context) error {
 	}
 
 	// If HTMX request, return HTML
-	if ctx.Request().Header.Get("HX-Request") != "" {
+	if htmx.GetRequest(ctx).Enabled {
 		r := ui.NewRequest(ctx)
 
 		// Convert to MessageData
@@ -2453,7 +2454,7 @@ func (h *Messenger) MessageReply(ctx echo.Context) error {
 	}
 
 	// If HTMX request, return HTML for the new reply
-	if ctx.Request().Header.Get("HX-Request") != "" {
+	if htmx.GetRequest(ctx).Enabled {
 		logger.Info("HTMX request detected, returning HTML reply item")
 		// Load user for message display
 		replyWithUser, err := h.orm.Message.Query().Where(message.IDEQ(reply.ID)).WithUser().WithAttachments().Only(ctx.Request().Context())
@@ -3013,7 +3014,7 @@ func (h *Messenger) DMMessageCreate(ctx echo.Context) error {
 	}
 
 	// If HTMX request, return HTML for the new message
-	if ctx.Request().Header.Get("HX-Request") != "" {
+	if htmx.GetRequest(ctx).Enabled {
 		logger.Info("HTMX request detected, returning HTML message item")
 		// Load user for message display
 		msgWithUser, err := h.orm.DirectMessageContent.Query().Where(directmessagecontent.IDEQ(msg.ID)).WithUser().Only(ctx.Request().Context())
