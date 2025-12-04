@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/labstack/echo/v4"
 	"github.com/mikestefanello/pagoda/config"
 	"github.com/mikestefanello/pagoda/ent"
@@ -28,6 +29,7 @@ import (
 	"github.com/mikestefanello/pagoda/ent/workspace"
 	"github.com/mikestefanello/pagoda/ent/workspacemember"
 	"github.com/mikestefanello/pagoda/pkg/context"
+	"github.com/mikestefanello/pagoda/pkg/form"
 	"github.com/mikestefanello/pagoda/pkg/htmx"
 	"github.com/mikestefanello/pagoda/pkg/log"
 	messengerMiddleware "github.com/mikestefanello/pagoda/pkg/middleware"
@@ -37,6 +39,7 @@ import (
 	"github.com/mikestefanello/pagoda/pkg/services"
 	"github.com/mikestefanello/pagoda/pkg/ui"
 	messengerComponents "github.com/mikestefanello/pagoda/pkg/ui/components/messenger"
+	messengerForms "github.com/mikestefanello/pagoda/pkg/ui/forms/messenger"
 	messengerPages "github.com/mikestefanello/pagoda/pkg/ui/pages/messenger"
 	ws "github.com/mikestefanello/pagoda/pkg/websocket"
 	"github.com/spf13/afero"
@@ -526,22 +529,27 @@ func (h *Messenger) WorkspaceCreate(ctx echo.Context) error {
 	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
 	logger.Info("Creating workspace", "user_id", user.ID, "user_email", user.Email)
 
-	// Parse form data
-	name := ctx.FormValue("name")
-	if name == "" {
-		logger.Warn("Workspace creation failed: name is required")
-		return echo.NewHTTPError(http.StatusBadRequest, "workspace name is required")
+	// Submit form with validation
+	var input messengerForms.WorkspaceForm
+	err := form.Submit(ctx, &input)
+	switch err.(type) {
+	case nil:
+		// Form is valid, continue
+	case validator.ValidationErrors:
+		// Validation errors - re-render form with errors
+		return h.WorkspaceCreatePage(ctx)
+	default:
+		return err
 	}
 
-	slug := ctx.FormValue("slug")
+	// Generate slug from name if not provided
+	slug := input.Slug
 	if slug == "" {
-		// Generate slug from name if not provided
-		slug = generateSlug(name)
-		logger.Info("Generated slug from name", "name", name, "slug", slug)
+		slug = generateSlug(input.Name)
+		logger.Info("Generated slug from name", "name", input.Name, "slug", slug)
 	}
 
-	description := ctx.FormValue("description")
-	logger.Info("Workspace form data", "name", name, "slug", slug, "description_length", len(description))
+	logger.Info("Workspace form data", "name", input.Name, "slug", slug, "description_length", len(input.Description))
 
 	// Check if slug already exists
 	exists, err := h.orm.Workspace.
@@ -559,17 +567,17 @@ func (h *Messenger) WorkspaceCreate(ctx echo.Context) error {
 		return echo.NewHTTPError(http.StatusConflict, "workspace with this slug already exists")
 	}
 
-	logger.Info("Creating workspace entity", "name", name, "slug", slug)
+	logger.Info("Creating workspace entity", "name", input.Name, "slug", slug)
 	workspaceEntity, err := h.orm.Workspace.
 		Create().
-		SetName(name).
+		SetName(input.Name).
 		SetSlug(slug).
-		SetDescription(description).
+		SetDescription(input.Description).
 		SetOwnerID(int(user.ID)).
 		Save(ctx.Request().Context())
 
 	if err != nil {
-		logger.Error("Failed to create workspace", "error", err, "name", name, "slug", slug)
+		logger.Error("Failed to create workspace", "error", err, "name", input.Name, "slug", slug)
 		return fail(err, "failed to create workspace")
 	}
 	logger.Info("Workspace created", "workspace_id", workspaceEntity.ID, "workspace_name", workspaceEntity.Name)
@@ -652,43 +660,56 @@ func (h *Messenger) WorkspaceUpdate(ctx echo.Context) error {
 	id = workspaceEntity.ID
 	logger.Info("Workspace loaded from context", "workspace_id", workspaceEntity.ID, "workspace_name", workspaceEntity.Name)
 
+	// Submit form with validation
+	var input messengerForms.WorkspaceUpdateForm
+	err = form.Submit(ctx, &input)
+	switch err.(type) {
+	case nil:
+		// Form is valid, continue
+	case validator.ValidationErrors:
+		// Validation errors - return current workspace
+		return ctx.JSON(http.StatusBadRequest, workspaceEntity)
+	default:
+		return err
+	}
+
 	// Parse form data
 	update := h.orm.Workspace.UpdateOneID(id)
 	hasUpdates := false
 
-	if name := ctx.FormValue("name"); name != "" {
-		logger.Info("Updating workspace name", "workspace_id", id, "new_name", name)
-		update = update.SetName(name)
+	if input.Name != "" {
+		logger.Info("Updating workspace name", "workspace_id", id, "new_name", input.Name)
+		update = update.SetName(input.Name)
 		hasUpdates = true
 	}
 
-	if slug := ctx.FormValue("slug"); slug != "" {
-		logger.Info("Checking workspace slug availability", "workspace_id", id, "new_slug", slug)
+	if input.Slug != "" {
+		logger.Info("Checking workspace slug availability", "workspace_id", id, "new_slug", input.Slug)
 		// Check if slug already exists (excluding current workspace)
 		exists, err := h.orm.Workspace.
 			Query().
-			Where(workspace.SlugEQ(slug)).
+			Where(workspace.SlugEQ(input.Slug)).
 			Where(workspace.IDNEQ(id)).
 			Exist(ctx.Request().Context())
 
 		if err != nil {
-			logger.Error("Failed to check workspace slug", "error", err, "workspace_id", id, "slug", slug)
+			logger.Error("Failed to check workspace slug", "error", err, "workspace_id", id, "slug", input.Slug)
 			return fail(err, "failed to check workspace slug")
 		}
 
 		if exists {
-			logger.Warn("Workspace update failed: slug already exists", "workspace_id", id, "slug", slug)
+			logger.Warn("Workspace update failed: slug already exists", "workspace_id", id, "slug", input.Slug)
 			return echo.NewHTTPError(http.StatusConflict, "workspace with this slug already exists")
 		}
 
-		logger.Info("Updating workspace slug", "workspace_id", id, "new_slug", slug)
-		update = update.SetSlug(slug)
+		logger.Info("Updating workspace slug", "workspace_id", id, "new_slug", input.Slug)
+		update = update.SetSlug(input.Slug)
 		hasUpdates = true
 	}
 
-	if description := ctx.FormValue("description"); description != "" {
-		logger.Info("Updating workspace description", "workspace_id", id, "description_length", len(description))
-		update = update.SetDescription(description)
+	if input.Description != "" {
+		logger.Info("Updating workspace description", "workspace_id", id, "description_length", len(input.Description))
+		update = update.SetDescription(input.Description)
 		hasUpdates = true
 	}
 
@@ -1137,19 +1158,24 @@ func (h *Messenger) ChannelCreate(ctx echo.Context) error {
 		return echo.NewHTTPError(http.StatusForbidden, "you are not a member of this workspace")
 	}
 
-	// Parse form data
-	name := ctx.FormValue("name")
-	if name == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "channel name is required")
+	// Submit form with validation
+	var input messengerForms.ChannelForm
+	err = form.Submit(ctx, &input)
+	switch err.(type) {
+	case nil:
+		// Form is valid, continue
+	case validator.ValidationErrors:
+		// Validation errors - re-render form with errors
+		return h.ChannelCreateForm(ctx)
+	default:
+		return err
 	}
 
-	slug := ctx.FormValue("slug")
+	// Generate slug from name if not provided
+	slug := input.Slug
 	if slug == "" {
-		slug = generateSlug(name)
+		slug = generateSlug(input.Name)
 	}
-
-	description := ctx.FormValue("description")
-	isPrivate := ctx.FormValue("is_private") == "true" || ctx.FormValue("is_private") == "1"
 
 	// Check if slug already exists in workspace
 	exists, err = h.orm.Channel.
@@ -1168,10 +1194,10 @@ func (h *Messenger) ChannelCreate(ctx echo.Context) error {
 
 	ch, err := h.orm.Channel.
 		Create().
-		SetName(name).
+		SetName(input.Name).
 		SetSlug(slug).
-		SetDescription(description).
-		SetIsPrivate(isPrivate).
+		SetDescription(input.Description).
+		SetIsPrivate(input.IsPrivate).
 		SetWorkspaceID(workspaceID).
 		SetCreatedBy(int(user.ID)).
 		Save(ctx.Request().Context())
@@ -1366,49 +1392,62 @@ func (h *Messenger) ChannelUpdate(ctx echo.Context) error {
 		logger.Info("User is channel creator", "channel_id", id, "user_id", user.ID)
 	}
 
+	// Submit form with validation
+	var input messengerForms.ChannelUpdateForm
+	err = form.Submit(ctx, &input)
+	switch err.(type) {
+	case nil:
+		// Form is valid, continue
+	case validator.ValidationErrors:
+		// Validation errors - return current channel
+		return ctx.JSON(http.StatusBadRequest, ch)
+	default:
+		return err
+	}
+
 	// Parse form data
 	update := h.orm.Channel.UpdateOneID(id)
 	hasUpdates := false
 
-	if name := ctx.FormValue("name"); name != "" {
-		logger.Info("Updating channel name", "channel_id", id, "new_name", name)
-		update = update.SetName(name)
+	if input.Name != "" {
+		logger.Info("Updating channel name", "channel_id", id, "new_name", input.Name)
+		update = update.SetName(input.Name)
 		hasUpdates = true
 	}
 
-	if slug := ctx.FormValue("slug"); slug != "" {
-		logger.Info("Checking channel slug availability", "channel_id", id, "new_slug", slug)
+	if input.Slug != "" {
+		logger.Info("Checking channel slug availability", "channel_id", id, "new_slug", input.Slug)
 		// Check if slug already exists in workspace (excluding current channel)
 		exists, err := h.orm.Channel.
 			Query().
 			Where(channel.WorkspaceIDEQ(ch.WorkspaceID)).
-			Where(channel.SlugEQ(slug)).
+			Where(channel.SlugEQ(input.Slug)).
 			Where(channel.IDNEQ(id)).
 			Exist(ctx.Request().Context())
 
 		if err != nil {
-			logger.Error("Failed to check channel slug", "error", err, "channel_id", id, "slug", slug)
+			logger.Error("Failed to check channel slug", "error", err, "channel_id", id, "slug", input.Slug)
 			return fail(err, "failed to check channel slug")
 		}
 
 		if exists {
-			logger.Warn("Channel update failed: slug already exists", "channel_id", id, "slug", slug)
+			logger.Warn("Channel update failed: slug already exists", "channel_id", id, "slug", input.Slug)
 			return echo.NewHTTPError(http.StatusConflict, "channel with this slug already exists in this workspace")
 		}
 
-		logger.Info("Updating channel slug", "channel_id", id, "new_slug", slug)
-		update = update.SetSlug(slug)
+		logger.Info("Updating channel slug", "channel_id", id, "new_slug", input.Slug)
+		update = update.SetSlug(input.Slug)
 		hasUpdates = true
 	}
 
-	if description := ctx.FormValue("description"); description != "" {
-		logger.Info("Updating channel description", "channel_id", id, "description_length", len(description))
-		update = update.SetDescription(description)
+	if input.Description != "" {
+		logger.Info("Updating channel description", "channel_id", id, "description_length", len(input.Description))
+		update = update.SetDescription(input.Description)
 		hasUpdates = true
 	}
 
-	if isPrivateStr := ctx.FormValue("is_private"); isPrivateStr != "" {
-		isPrivate := isPrivateStr == "true" || isPrivateStr == "1"
+	if input.IsPrivate != "" {
+		isPrivate := input.IsPrivate == "true" || input.IsPrivate == "1"
 		logger.Info("Updating channel privacy", "channel_id", id, "is_private", isPrivate)
 		update = update.SetIsPrivate(isPrivate)
 		hasUpdates = true
@@ -1598,6 +1637,7 @@ func (h *Messenger) ChannelAddMember(ctx echo.Context) error {
 
 // ChannelRemoveMember removes a member from a channel
 func (h *Messenger) ChannelRemoveMember(ctx echo.Context) error {
+	logger := log.Ctx(ctx)
 	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid channel ID")
@@ -1628,6 +1668,7 @@ func (h *Messenger) ChannelRemoveMember(ctx echo.Context) error {
 	if targetUserID != int(user.ID) {
 		if ch.CreatedBy != int(user.ID) {
 			if err := h.requireWorkspaceOwnerOrAdmin(ctx, ch.WorkspaceID, int(user.ID)); err != nil {
+				logger.Warn("Permission check failed", "channel_id", id, "user_id", user.ID, "error", err)
 				return err
 			}
 		}
@@ -1718,24 +1759,34 @@ func (h *Messenger) MessageCreate(ctx echo.Context) error {
 	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
 	logger.Info("User creating message", "user_id", user.ID, "user_name", user.Name)
 
-	// Parse form data
-	content := ctx.FormValue("content")
+	// Submit form with validation
+	var input messengerForms.MessageForm
+	err = form.Submit(ctx, &input)
+	switch err.(type) {
+	case nil:
+		// Form is valid, continue
+	case validator.ValidationErrors:
+		// Validation errors - return error
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid message form data")
+	default:
+		return err
+	}
 
 	// Check if there are files being uploaded
-	form, _ := ctx.MultipartForm()
-	hasFiles := form != nil && form.File != nil && len(form.File["files"]) > 0
+	multipartForm, _ := ctx.MultipartForm()
+	hasFiles := multipartForm != nil && multipartForm.File != nil && len(multipartForm.File["files"]) > 0
 
-	if content == "" && !hasFiles {
+	if input.Content == "" && !hasFiles {
 		logger.Warn("Message content is empty and no files provided")
 		return echo.NewHTTPError(http.StatusBadRequest, "message content or file is required")
 	}
-	logger.Info("Message content parsed", "content_length", len(content), "has_files", hasFiles)
+	logger.Info("Message content parsed", "content_length", len(input.Content), "has_files", hasFiles)
 
 	// Создаём сообщение в базе данных
 	// Используем Ent ORM для создания записи в таблице Message
 	msg, err := h.orm.Message.
 		Create().                                // Начинаем создание новой записи
-		SetContent(content).                     // Устанавливаем текст сообщения
+		SetContent(input.Content).               // Устанавливаем текст сообщения
 		SetMessageType(message.MessageTypeText). // Тип сообщения: text (может быть также file или thread_reply)
 		SetChannelID(channelID).                 // Связываем с каналом
 		SetUserID(int(user.ID)).                 // Устанавливаем автора сообщения
@@ -1749,11 +1800,11 @@ func (h *Messenger) MessageCreate(ctx echo.Context) error {
 	logger.Info("Message created successfully", "message_id", msg.ID, "channel_id", channelID)
 
 	// Handle file attachments (reuse form if already parsed)
-	if form == nil {
-		form, _ = ctx.MultipartForm()
+	if multipartForm == nil {
+		multipartForm, _ = ctx.MultipartForm()
 	}
-	if err == nil && form != nil && form.File != nil {
-		files := form.File["files"]
+	if err == nil && multipartForm != nil && multipartForm.File != nil {
+		files := multipartForm.File["files"]
 		if len(files) > 0 {
 			logger.Info("Processing file attachments", "file_count", len(files))
 			for _, fileHeader := range files {
@@ -1844,7 +1895,7 @@ func (h *Messenger) MessageCreate(ctx echo.Context) error {
 
 	// Send WebSocket event to channel members
 	if h.hub != nil {
-		event := ws.MessageNewEvent(int64(msg.ID), int64(channelID), int64(user.ID), content)
+		event := ws.MessageNewEvent(int64(msg.ID), int64(channelID), int64(user.ID), input.Content)
 		h.hub.SendToChannel(int64(channelID), event.ToJSON())
 		logger.Info("WebSocket event sent", "message_id", msg.ID, "channel_id", channelID)
 	}
@@ -1934,15 +1985,22 @@ func (h *Messenger) MessageUpdate(ctx echo.Context) error {
 		return echo.NewHTTPError(http.StatusForbidden, "you can only edit your own messages")
 	}
 
-	// Parse form data
-	content := ctx.FormValue("content")
-	if content == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "message content is required")
+	// Submit form with validation
+	var input messengerForms.MessageForm
+	err = form.Submit(ctx, &input)
+	switch err.(type) {
+	case nil:
+		// Form is valid, continue
+	case validator.ValidationErrors:
+		// Validation errors - return current message
+		return ctx.JSON(http.StatusBadRequest, msg)
+	default:
+		return err
 	}
 
 	// Update message
 	msg, err = msg.Update().
-		SetContent(content).
+		SetContent(input.Content).
 		SetEditedAt(time.Now()).
 		Save(ctx.Request().Context())
 
@@ -1957,7 +2015,7 @@ func (h *Messenger) MessageUpdate(ctx echo.Context) error {
 			Data: map[string]interface{}{
 				"message_id": int64(msg.ID),
 				"channel_id": int64(msg.ChannelID),
-				"content":    content,
+				"content":    input.Content,
 			},
 		}
 		h.hub.SendToChannel(int64(msg.ChannelID), event.ToJSON())
@@ -2354,19 +2412,26 @@ func (h *Messenger) MessageReply(ctx echo.Context) error {
 	}
 	logger.Info("Parent message loaded", "parent_message_id", parentMsg.ID, "channel_id", parentMsg.ChannelID)
 
-	// Parse form data
-	content := ctx.FormValue("content")
-	if content == "" {
-		logger.Warn("Message reply failed: content is required", "parent_message_id", id)
-		return echo.NewHTTPError(http.StatusBadRequest, "message content is required")
+	// Submit form with validation
+	var input messengerForms.MessageForm
+	err = form.Submit(ctx, &input)
+	switch err.(type) {
+	case nil:
+		// Form is valid, continue
+	case validator.ValidationErrors:
+		// Validation errors - re-render form with errors
+		return h.MessageReplies(ctx)
+	default:
+		return err
 	}
-	logger.Info("Reply content", "parent_message_id", id, "content_length", len(content))
+
+	logger.Info("Reply content", "parent_message_id", id, "content_length", len(input.Content))
 
 	// Create reply
 	logger.Info("Creating reply in database", "parent_message_id", id, "channel_id", parentMsg.ChannelID, "user_id", user.ID)
 	reply, err := h.orm.Message.
 		Create().
-		SetContent(content).
+		SetContent(input.Content).
 		SetMessageType(message.MessageTypeThreadReply).
 		SetChannelID(parentMsg.ChannelID).
 		SetUserID(int(user.ID)).
@@ -2403,7 +2468,7 @@ func (h *Messenger) MessageReply(ctx echo.Context) error {
 				"channel_id": int64(parentMsg.ChannelID),
 				"thread_id":  int64(id),
 				"user_id":    int64(user.ID),
-				"content":    content,
+				"content":    input.Content,
 			},
 		}
 		h.hub.SendToChannel(int64(parentMsg.ChannelID), event.ToJSON())
@@ -2811,18 +2876,28 @@ func (h *Messenger) DMMessageCreate(ctx echo.Context) error {
 	}
 	logger.Info("User verified as part of DM", "dm_id", id, "user_id", user.ID)
 
-	// Parse form data
-	content := ctx.FormValue("content")
+	// Submit form with validation
+	var input messengerForms.MessageForm
+	err = form.Submit(ctx, &input)
+	switch err.(type) {
+	case nil:
+		// Form is valid, continue
+	case validator.ValidationErrors:
+		// Validation errors - return error
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid message form data")
+	default:
+		return err
+	}
 
 	// Check if there are files being uploaded
-	form, _ := ctx.MultipartForm()
-	hasFiles := form != nil && form.File != nil && len(form.File["files"]) > 0
+	multipartForm, _ := ctx.MultipartForm()
+	hasFiles := multipartForm != nil && multipartForm.File != nil && len(multipartForm.File["files"]) > 0
 
-	if content == "" && !hasFiles {
+	if input.Content == "" && !hasFiles {
 		logger.Warn("DM message create failed: content is required and no files provided", "dm_id", id)
 		return echo.NewHTTPError(http.StatusBadRequest, "message content or file is required")
 	}
-	logger.Info("DM message content", "dm_id", id, "content_length", len(content), "has_files", hasFiles)
+	logger.Info("DM message content", "dm_id", id, "content_length", len(input.Content), "has_files", hasFiles)
 
 	// Создаём сообщение в базе данных
 	// DirectMessageContent - это отдельная таблица для сообщений в DM (не Message)
@@ -2830,7 +2905,7 @@ func (h *Messenger) DMMessageCreate(ctx echo.Context) error {
 	logger.Info("Creating DM message in database", "dm_id", id, "user_id", user.ID)
 	msg, err := h.orm.DirectMessageContent.
 		Create().                     // Начинаем создание записи
-		SetContent(content).          // Текст сообщения
+		SetContent(input.Content).    // Текст сообщения
 		SetDmID(id).                  // Связываем с DM
 		SetUserID(int(user.ID)).      // Устанавливаем автора
 		Save(ctx.Request().Context()) // Сохраняем в БД
@@ -2842,11 +2917,11 @@ func (h *Messenger) DMMessageCreate(ctx echo.Context) error {
 	logger.Info("DM message created", "message_id", msg.ID, "dm_id", id, "user_id", user.ID)
 
 	// Handle file attachments (reuse form if already parsed)
-	if form == nil {
-		form, _ = ctx.MultipartForm()
+	if multipartForm == nil {
+		multipartForm, _ = ctx.MultipartForm()
 	}
-	if err == nil && form != nil && form.File != nil {
-		files := form.File["files"]
+	if err == nil && multipartForm != nil && multipartForm.File != nil {
+		files := multipartForm.File["files"]
 		if len(files) > 0 {
 			logger.Info("Processing file attachments for DM", "file_count", len(files))
 			for _, fileHeader := range files {
@@ -2957,7 +3032,7 @@ func (h *Messenger) DMMessageCreate(ctx echo.Context) error {
 				"message_id": int64(msg.ID),
 				"dm_id":      int64(id),
 				"user_id":    int64(user.ID),
-				"content":    content,
+				"content":    input.Content,
 			},
 		}
 		h.hub.SendToUser(int64(otherUserID), event.ToJSON())
@@ -3371,6 +3446,7 @@ func (h *Messenger) DMAttachmentUpload(ctx echo.Context) error {
 
 // AttachmentView serves an attachment file
 func (h *Messenger) AttachmentView(ctx echo.Context) error {
+	logger := log.Ctx(ctx)
 	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid attachment ID")
@@ -3398,7 +3474,11 @@ func (h *Messenger) AttachmentView(ctx echo.Context) error {
 
 	// Stream file
 	_, err = io.Copy(ctx.Response(), file)
-	return err
+	if err != nil {
+		logger.Error("Failed to stream attachment file", "error", err, "attachment_id", id)
+		return fail(err, "failed to stream attachment file")
+	}
+	return nil
 }
 
 // AttachmentDelete deletes an attachment
