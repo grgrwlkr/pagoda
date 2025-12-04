@@ -35,6 +35,13 @@ func init() {
 }
 
 // Init initializes the handler with dependencies from the container.
+// Init initializes the handler with dependencies from the container.
+// Creates and starts the WebSocket hub for real-time communication.
+// Parameters:
+//   - c: service container with all dependencies
+//
+// Returns:
+//   - error: initialization error if any dependency is missing
 func (h *WebSocket) Init(c *services.Container) error {
 	// Create WebSocket hub
 	h.hub = ws.NewHub(c.ORM)

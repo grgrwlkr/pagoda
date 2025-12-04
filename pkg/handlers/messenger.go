@@ -271,6 +271,12 @@ func init() {
 }
 
 // Init initializes the handler with dependencies from the container.
+// It sets up the ORM client, file system, configuration, and WebSocket hub.
+// Parameters:
+//   - c: service container with all dependencies
+//
+// Returns:
+//   - error: initialization error if any dependency is missing
 func (h *Messenger) Init(c *services.Container) error {
 	h.orm = c.ORM
 	h.files = c.Files
@@ -280,7 +286,11 @@ func (h *Messenger) Init(c *services.Container) error {
 	return nil
 }
 
-// Routes registers messenger routes.
+// Routes registers all messenger-related HTTP routes with the Echo router.
+// It sets up routes for workspaces, channels, messages, direct messages,
+// reactions, and attachments, along with their corresponding middleware.
+// Parameters:
+//   - g: Echo router group to register routes on
 func (h *Messenger) Routes(g *echo.Group) {
 	// Root redirect to first workspace or workspace list (accessible without auth to redirect to login)
 	g.GET("/", h.RootRedirect).Name = routenames.MessengerRoot
@@ -946,7 +956,12 @@ func (h *Messenger) WorkspaceRemoveMember(ctx echo.Context) error {
 // Channel Handlers
 // ============================================================================
 
-// ChannelList returns a list of channels in a workspace
+// ChannelList returns a JSON list of channels in a workspace where the authenticated user is a member.
+// Parameters:
+//   - ctx: Echo context with workspace_id in URL params
+//
+// Returns:
+//   - JSON array of channels (HTTP 200) or error
 func (h *Messenger) ChannelList(ctx echo.Context) error {
 	workspaceID, err := strconv.Atoi(ctx.Param("workspace_id"))
 	if err != nil {
@@ -1700,7 +1715,13 @@ func (h *Messenger) ChannelRemoveMember(ctx echo.Context) error {
 	return ctx.NoContent(http.StatusNoContent)
 }
 
-// ChannelMessages returns messages in a channel with pagination
+// ChannelMessages returns paginated messages from a channel as JSON.
+// Used for loading message history via HTMX or API requests.
+// Parameters:
+//   - ctx: Echo context with channel ID in URL params and pagination query params
+//
+// Returns:
+//   - JSON response with messages array and pagination info or error
 func (h *Messenger) ChannelMessages(ctx echo.Context) error {
 	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
@@ -2085,7 +2106,13 @@ func (h *Messenger) MessageDelete(ctx echo.Context) error {
 	return ctx.NoContent(http.StatusNoContent)
 }
 
-// MessageReplies returns replies to a message (thread)
+// MessageReplies returns all replies to a message in a thread as HTML.
+// Used by HTMX to load thread replies without page reload.
+// Parameters:
+//   - ctx: Echo context with message ID in URL params
+//
+// Returns:
+//   - HTML fragment with reply messages or error
 func (h *Messenger) MessageReplies(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
 	logger.Info("Getting message replies")
@@ -2197,7 +2224,13 @@ func (h *Messenger) MessageReplies(ctx echo.Context) error {
 	return ctx.JSON(http.StatusOK, replies)
 }
 
-// MessageThread renders the thread view page
+// MessageThread renders a full page view of a message thread.
+// Shows the parent message and all replies in a threaded conversation view.
+// Parameters:
+//   - ctx: Echo context with message ID in URL params
+//
+// Returns:
+//   - Rendered HTML page with thread view or error
 func (h *Messenger) MessageThread(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
 
@@ -3100,7 +3133,13 @@ func (h *Messenger) DirectMessageMessageCreate(ctx echo.Context) error {
 // Reaction Handlers
 // ============================================================================
 
-// ReactionAdd adds a reaction to a message
+// ReactionAdd adds an emoji reaction to a message.
+// Creates a new reaction record and broadcasts WebSocket event to channel members.
+// Parameters:
+//   - ctx: Echo context with message ID in URL params and emoji in request body
+//
+// Returns:
+//   - JSON response with reaction details or error
 func (h *Messenger) ReactionAdd(ctx echo.Context) error {
 	messageID, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
@@ -3162,7 +3201,14 @@ func (h *Messenger) ReactionAdd(ctx echo.Context) error {
 	return ctx.JSON(http.StatusCreated, reaction)
 }
 
-// ReactionRemove removes a reaction from a message
+// ReactionRemove removes an emoji reaction from a message.
+// Deletes the reaction record and broadcasts WebSocket event to channel members.
+// Only the user who added the reaction can remove it.
+// Parameters:
+//   - ctx: Echo context with message ID and emoji in URL params
+//
+// Returns:
+//   - HTTP 204 No Content on success or error
 func (h *Messenger) ReactionRemove(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
 
@@ -3233,7 +3279,13 @@ func (h *Messenger) ReactionRemove(ctx echo.Context) error {
 // Attachment Handlers
 // ============================================================================
 
-// AttachmentUpload uploads a file attachment
+// AttachmentUpload handles file uploads and attaches them to a message.
+// Accepts multipart/form-data with files and creates attachment records.
+// Parameters:
+//   - ctx: Echo context with message ID in URL params and files in form data
+//
+// Returns:
+//   - JSON response with attachment details or error
 func (h *Messenger) AttachmentUpload(ctx echo.Context) error {
 	messageID, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
@@ -3325,7 +3377,13 @@ func (h *Messenger) AttachmentUpload(ctx echo.Context) error {
 	return ctx.JSON(http.StatusCreated, attachment)
 }
 
-// DirectMessageAttachmentUpload uploads a file attachment to a direct message
+// DirectMessageAttachmentUpload handles file uploads for direct messages.
+// Similar to AttachmentUpload but for direct message conversations.
+// Parameters:
+//   - ctx: Echo context with direct message ID in URL params and files in form data
+//
+// Returns:
+//   - JSON response with attachment details or error
 func (h *Messenger) DirectMessageAttachmentUpload(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
 
@@ -3444,7 +3502,13 @@ func (h *Messenger) DirectMessageAttachmentUpload(ctx echo.Context) error {
 	return ctx.JSON(http.StatusCreated, attachment)
 }
 
-// AttachmentView serves an attachment file
+// AttachmentView streams an attachment file to the client.
+// Handles file serving with proper content-type headers and access control.
+// Parameters:
+//   - ctx: Echo context with attachment ID in URL params
+//
+// Returns:
+//   - File stream (HTTP 200) or error if attachment not found/unauthorized
 func (h *Messenger) AttachmentView(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
 	id, err := strconv.Atoi(ctx.Param("id"))
@@ -3481,7 +3545,13 @@ func (h *Messenger) AttachmentView(ctx echo.Context) error {
 	return nil
 }
 
-// AttachmentDelete deletes an attachment
+// AttachmentDelete removes an attachment from a message.
+// Only the message author can delete attachments.
+// Parameters:
+//   - ctx: Echo context with attachment ID in URL params
+//
+// Returns:
+//   - HTTP 204 No Content on success or error
 func (h *Messenger) AttachmentDelete(ctx echo.Context) error {
 	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {

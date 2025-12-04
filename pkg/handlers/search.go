@@ -32,11 +32,20 @@ func init() {
 	Register(new(Search))
 }
 
+// Init initializes the handler with dependencies from the container.
+// Parameters:
+//   - c: service container with all dependencies
+//
+// Returns:
+//   - error: initialization error if any dependency is missing
 func (h *Search) Init(c *services.Container) error {
 	h.orm = c.ORM
 	return nil
 }
 
+// Routes registers all search-related HTTP routes with the Echo router.
+// Parameters:
+//   - g: Echo router group to register routes on
 func (h *Search) Routes(g *echo.Group) {
 	// All search routes require authentication
 	g = g.Group("", messengerMiddleware.RequireAuthentication)
@@ -49,7 +58,13 @@ func (h *Search) Routes(g *echo.Group) {
 
 // Note: MessageSearchResult and UserSearchResult are defined in messengerComponents package
 
-// SearchMessages searches for messages
+// SearchMessages searches for messages matching the query criteria.
+// Returns JSON results with message content, author, and metadata.
+// Parameters:
+//   - ctx: Echo context with query parameters (q, workspace_id, channel_id, etc.)
+//
+// Returns:
+//   - JSON response with search results or error
 func (h *Search) SearchMessages(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
 	logger.Info("Searching messages")
@@ -214,6 +229,13 @@ func (h *Search) SearchMessages(ctx echo.Context) error {
 }
 
 // SearchUsers searches for users in a workspace
+// SearchUsers searches for users matching the query criteria.
+// Returns JSON results with user information.
+// Parameters:
+//   - ctx: Echo context with query parameters (q, workspace_id, limit)
+//
+// Returns:
+//   - JSON response with search results or error
 func (h *Search) SearchUsers(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
 	logger.Info("Searching users")
@@ -307,6 +329,12 @@ func (h *Search) SearchUsers(ctx echo.Context) error {
 }
 
 // SearchPage renders the search results page
+// SearchPage renders the search results page with filters.
+// Parameters:
+//   - ctx: Echo context with query parameters
+//
+// Returns:
+//   - Rendered HTML page with search results or error
 func (h *Search) SearchPage(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
 	logger.Info("Rendering search page")

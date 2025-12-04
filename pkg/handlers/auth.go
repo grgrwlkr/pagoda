@@ -33,6 +33,12 @@ func init() {
 	Register(new(Auth))
 }
 
+// Init initializes the handler with dependencies from the container.
+// Parameters:
+//   - c: service container with all dependencies
+//
+// Returns:
+//   - error: initialization error if any dependency is missing
 func (h *Auth) Init(c *services.Container) error {
 	h.config = c.Config
 	h.orm = c.ORM
@@ -41,6 +47,9 @@ func (h *Auth) Init(c *services.Container) error {
 	return nil
 }
 
+// Routes registers all authentication-related HTTP routes with the Echo router.
+// Parameters:
+//   - g: Echo router group to register routes on
 func (h *Auth) Routes(g *echo.Group) {
 	g.GET("/logout", h.Logout, middleware.RequireAuthentication).Name = routenames.Logout
 	g.GET("/email/verify/:token", h.VerifyEmail).Name = routenames.VerifyEmail
@@ -61,10 +70,23 @@ func (h *Auth) Routes(g *echo.Group) {
 	resetGroup.POST("/token/:user/:password_token/:token", h.ResetPasswordSubmit).Name = routenames.ResetPasswordSubmit
 }
 
+// ForgotPasswordPage renders the forgot password page.
+// Parameters:
+//   - ctx: Echo context
+//
+// Returns:
+//   - Rendered HTML page or error
 func (h *Auth) ForgotPasswordPage(ctx echo.Context) error {
 	return pages.ForgotPassword(ctx, form.Get[forms.ForgotPassword](ctx))
 }
 
+// ForgotPasswordSubmit processes forgot password form submission.
+// Sends password reset email to the user if email exists.
+// Parameters:
+//   - ctx: Echo context with email in form data
+//
+// Returns:
+//   - Redirect or error
 func (h *Auth) ForgotPasswordSubmit(ctx echo.Context) error {
 	var input forms.ForgotPassword
 
@@ -124,10 +146,23 @@ func (h *Auth) ForgotPasswordSubmit(ctx echo.Context) error {
 	return succeed()
 }
 
+// LoginPage renders the login page.
+// Parameters:
+//   - ctx: Echo context
+//
+// Returns:
+//   - Rendered HTML page or error
 func (h *Auth) LoginPage(ctx echo.Context) error {
 	return pages.Login(ctx, form.Get[forms.Login](ctx))
 }
 
+// LoginSubmit processes login form submission.
+// Authenticates user credentials and creates session.
+// Parameters:
+//   - ctx: Echo context with email and password in form data
+//
+// Returns:
+//   - Redirect on success or error
 func (h *Auth) LoginSubmit(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
 	logger.Info("=== LOGIN SUBMIT START ===")
@@ -226,6 +261,12 @@ func (h *Auth) LoginSubmit(ctx echo.Context) error {
 	return err
 }
 
+// Logout logs out the authenticated user and destroys the session.
+// Parameters:
+//   - ctx: Echo context
+//
+// Returns:
+//   - Redirect to home page or error
 func (h *Auth) Logout(ctx echo.Context) error {
 	if err := h.auth.Logout(ctx); err == nil {
 		msg.Success(ctx, "You have been logged out successfully.")
@@ -237,6 +278,12 @@ func (h *Auth) Logout(ctx echo.Context) error {
 		Go()
 }
 
+// RegisterPage renders the registration page.
+// Parameters:
+//   - ctx: Echo context
+//
+// Returns:
+//   - Rendered HTML page or error
 func (h *Auth) RegisterPage(ctx echo.Context) error {
 	return pages.Register(ctx, form.Get[forms.Register](ctx))
 }
