@@ -63,21 +63,21 @@ const (
 	MessengerMessageThread  = "messenger.message.thread"
 
 	// Direct Message routes
-	MessengerDMList          = "messenger.dm.list"
-	MessengerDMView          = "messenger.dm.view"
-	MessengerDMCreate        = "messenger.dm.create"
-	MessengerDMMessages      = "messenger.dm.messages"
-	MessengerDMMessageCreate = "messenger.dm.message.create"
+	MessengerDirectMessageList          = "messenger.direct_message.list"
+	MessengerDirectMessageView          = "messenger.direct_message.view"
+	MessengerDirectMessageCreate        = "messenger.direct_message.create"
+	MessengerDirectMessageMessages      = "messenger.direct_message.messages"
+	MessengerDirectMessageMessageCreate = "messenger.direct_message.message.create"
 
 	// Reaction routes
 	MessengerReactionAdd    = "messenger.reaction.add"
 	MessengerReactionRemove = "messenger.reaction.remove"
 
 	// Attachment routes
-	MessengerAttachmentUpload   = "messenger.attachment.upload"
-	MessengerDMAttachmentUpload = "messenger.dm.attachment.upload"
-	MessengerAttachmentView     = "messenger.attachment.view"
-	MessengerAttachmentDelete   = "messenger.attachment.delete"
+	MessengerAttachmentUpload              = "messenger.attachment.upload"
+	MessengerDirectMessageAttachmentUpload = "messenger.direct_message.attachment.upload"
+	MessengerAttachmentView                = "messenger.attachment.view"
+	MessengerAttachmentDelete              = "messenger.attachment.delete"
 
 	// Search routes
 	MessengerSearch         = "messenger.search"

@@ -105,7 +105,7 @@ func DirectMessagesList(r *ui.Request, dms []DMData) Node {
 func dmItem(r *ui.Request, id, userID int64, name string, isActive bool) Node {
 	return Li(
 		A(
-			Href(r.Path("messenger.dm.view", id)),
+			Href(r.Path("messenger.direct_message.view", id)),
 			Class("flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-base-300 transition-colors"),
 			If(isActive, Class("bg-base-300")),
 			Attr("hx-boost", "true"),

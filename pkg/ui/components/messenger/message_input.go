@@ -18,7 +18,7 @@ func MessageInput(r *ui.Request, channelIDOrDMID int64, isDM bool) Node {
 	// Определяем URL для отправки сообщения в зависимости от типа (канал или DM)
 	if isDM {
 		// Для прямых сообщений используем специальный route
-		actionRoute = r.Path("messenger.dm.message.create", channelIDOrDMID)
+		actionRoute = r.Path("messenger.direct_message.message.create", channelIDOrDMID)
 	} else {
 		// Для каналов используем обычный route
 		actionRoute = r.Path("messenger.message.create", channelIDOrDMID)

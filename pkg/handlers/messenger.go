@@ -318,11 +318,11 @@ func (h *Messenger) Routes(g *echo.Group) {
 	g.GET("/message/:id/thread", h.MessageThread).Name = routenames.MessengerMessageThread
 
 	// Direct Message routes
-	g.GET("/dms", h.DMList).Name = routenames.MessengerDMList
-	g.GET("/dm/:id", h.DMView).Name = routenames.MessengerDMView
-	g.POST("/dm", h.DMCreate).Name = routenames.MessengerDMCreate
-	g.GET("/dm/:id/messages", h.DMMessages).Name = routenames.MessengerDMMessages
-	g.POST("/dm/:id/messages", h.DMMessageCreate).Name = routenames.MessengerDMMessageCreate
+	g.GET("/dms", h.DirectMessageList).Name = routenames.MessengerDirectMessageList
+	g.GET("/dm/:id", h.DirectMessageView).Name = routenames.MessengerDirectMessageView
+	g.POST("/dm", h.DirectMessageCreate).Name = routenames.MessengerDirectMessageCreate
+	g.GET("/dm/:id/messages", h.DirectMessageMessages).Name = routenames.MessengerDirectMessageMessages
+	g.POST("/dm/:id/messages", h.DirectMessageMessageCreate).Name = routenames.MessengerDirectMessageMessageCreate
 
 	// Reaction routes
 	g.POST("/message/:id/reactions", h.ReactionAdd).Name = routenames.MessengerReactionAdd
@@ -330,7 +330,7 @@ func (h *Messenger) Routes(g *echo.Group) {
 
 	// Attachment routes
 	g.POST("/message/:id/attachments", h.AttachmentUpload).Name = routenames.MessengerAttachmentUpload
-	g.POST("/dm/:id/attachments", h.DMAttachmentUpload).Name = routenames.MessengerDMAttachmentUpload
+	g.POST("/dm/:id/attachments", h.DirectMessageAttachmentUpload).Name = routenames.MessengerDirectMessageAttachmentUpload
 	g.GET("/attachment/:id", h.AttachmentView).Name = routenames.MessengerAttachmentView
 	g.DELETE("/attachment/:id", h.AttachmentDelete).Name = routenames.MessengerAttachmentDelete
 }
@@ -2554,8 +2554,8 @@ func (h *Messenger) MessageReply(ctx echo.Context) error {
 // Direct Message Handlers
 // ============================================================================
 
-// DMList returns a list of direct message conversations
-func (h *Messenger) DMList(ctx echo.Context) error {
+// DirectMessageList returns a list of direct message conversations
+func (h *Messenger) DirectMessageList(ctx echo.Context) error {
 	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
 
 	// Get all DMs where user is user1 or user2
@@ -2577,14 +2577,14 @@ func (h *Messenger) DMList(ctx echo.Context) error {
 	return ctx.JSON(http.StatusOK, dms)
 }
 
-// DMView отображает страницу прямого сообщения (DM) с историей переписки
+// DirectMessageView отображает страницу прямого сообщения (DM) с историей переписки
 // Прямое сообщение - это приватная переписка между двумя пользователями
 // Параметры:
 //   - ctx: контекст Echo с запросом (ID DM берётся из URL параметра :id)
 //
 // Возвращает:
 //   - error: ошибка если DM не найден, пользователь не является участником, или ошибка загрузки данных
-func (h *Messenger) DMView(ctx echo.Context) error {
+func (h *Messenger) DirectMessageView(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
 
 	// Получаем ID прямого сообщения из URL параметра
@@ -2726,8 +2726,8 @@ func (h *Messenger) DMView(ctx echo.Context) error {
 	return messengerPages.DirectMessage(ctx, int64(id), otherUser.Name, messageData)
 }
 
-// DMCreate creates or retrieves a direct message conversation
-func (h *Messenger) DMCreate(ctx echo.Context) error {
+// DirectMessageCreate creates or retrieves a direct message conversation
+func (h *Messenger) DirectMessageCreate(ctx echo.Context) error {
 	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
 
 	// Get target user ID from form
@@ -2787,8 +2787,8 @@ func (h *Messenger) DMCreate(ctx echo.Context) error {
 	return ctx.JSON(http.StatusOK, dm)
 }
 
-// DMMessages returns messages in a direct message conversation
-func (h *Messenger) DMMessages(ctx echo.Context) error {
+// DirectMessageMessages returns messages in a direct message conversation
+func (h *Messenger) DirectMessageMessages(ctx echo.Context) error {
 	id, err := strconv.Atoi(ctx.Param("id"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid DM ID")
@@ -2843,8 +2843,8 @@ func (h *Messenger) DMMessages(ctx echo.Context) error {
 	})
 }
 
-// DMMessageCreate creates a message in a direct message conversation
-func (h *Messenger) DMMessageCreate(ctx echo.Context) error {
+// DirectMessageMessageCreate creates a message in a direct message conversation
+func (h *Messenger) DirectMessageMessageCreate(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
 
 	id, err := strconv.Atoi(ctx.Param("id"))
@@ -3325,8 +3325,8 @@ func (h *Messenger) AttachmentUpload(ctx echo.Context) error {
 	return ctx.JSON(http.StatusCreated, attachment)
 }
 
-// DMAttachmentUpload uploads a file attachment to a direct message
-func (h *Messenger) DMAttachmentUpload(ctx echo.Context) error {
+// DirectMessageAttachmentUpload uploads a file attachment to a direct message
+func (h *Messenger) DirectMessageAttachmentUpload(ctx echo.Context) error {
 	logger := log.Ctx(ctx)
 
 	dmID, err := strconv.Atoi(ctx.Param("id"))
