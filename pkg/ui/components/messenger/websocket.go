@@ -147,30 +147,29 @@ func WebSocketConnection(r *ui.Request, wsPath string, channelID, dmID int64) No
 		Attr("x-data", alpineData), // Alpine.js component for message handling
 		// Handle WebSocket messages via Alpine.js
 		Attr("hx-on::htmx:ws-message", "handleMessage(event.detail.message)"),
-			// Hidden form for sending join message via HTMX WebSocket
-			// This replaces htmx.trigger() call
-			If(len(joinMessageJSON) > 0,
-				Form(
-					ID("ws-join-form"),
-					Attr("ws-send"), // HTMX will send form data over WebSocket
-					Style("display: none;"),
-					Input(
-						Type("hidden"),
-						Name("message"),
-						Value(string(joinMessageJSON)),
-					),
+		// Hidden form for sending join message via HTMX WebSocket
+		// This replaces htmx.trigger() call
+		If(len(joinMessageJSON) > 0,
+			Form(
+				ID("ws-join-form"),
+				Attr("ws-send"), // HTMX will send form data over WebSocket
+				Style("display: none;"),
+				Input(
+					Type("hidden"),
+					Name("message"),
+					Value(string(joinMessageJSON)),
 				),
 			),
-			// Trigger form submission on WebSocket connect
-			Attr("hx-on::htmx:ws-connect", `
+		),
+		// Trigger form submission on WebSocket connect
+		Attr("hx-on::htmx:ws-connect", `
 			// Send join message via HTMX form (replaces htmx.trigger)
 			const joinForm = document.getElementById('ws-join-form');
 			if (joinForm) {
 				joinForm.requestSubmit();
 			}
 		`),
-			// Hidden container for WebSocket connection
-			Style("display: none;"),
-		),
-	}
+		// Hidden container for WebSocket connection
+		Style("display: none;"),
+	)
 }
