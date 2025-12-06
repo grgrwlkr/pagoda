@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/mikestefanello/pagoda/pkg/ui"
+	"github.com/mikestefanello/pagoda/pkg/ui/components"
 	. "maragu.dev/gomponents"
 	. "maragu.dev/gomponents/html"
 )
@@ -130,56 +131,57 @@ func renderThreadPanelReplyForm(r *ui.Request, messageID int64) Node {
 		Attr("hx-target", "#thread-panel-replies"),
 		Attr("hx-swap", "beforeend"),
 		Attr("hx-on::after-request", `
-			this.querySelector('textarea').value = '';
-			this.querySelector('textarea').style.height = 'auto';
-			// Scroll to new reply after adding it
-			if (typeof scrollToNewReply === 'function') {
-				setTimeout(scrollToNewReply, 100);
-			}
-		`),
-		// CSRF token handling: update token from main form before submit
-		// Use both onsubmit and htmx:before-request to ensure token is updated
-		Attr("onsubmit", `
-			// Get CSRF token from main message form and update this form's token
-			var mainForm = document.querySelector('#message-form');
-			if (mainForm) {
-				var mainCSRF = mainForm.querySelector('input[name="csrf"]');
-				if (mainCSRF && mainCSRF.value) {
-					// Update the hidden input in this form to match the main form's token
-					// This ensures the token matches the cookie set by the server
-					var panelCSRF = this.querySelector('input[name="csrf"]');
-					if (panelCSRF) {
-						panelCSRF.value = mainCSRF.value;
-					}
-				}
-			}
-			return true; // Allow form submission to continue
-		`),
-		Attr("hx-on::htmx:before-request", `
-			// Also update token in HTMX request parameters
-			var mainForm = document.querySelector('#message-form');
-			if (mainForm) {
-				var mainCSRF = mainForm.querySelector('input[name="csrf"]');
-				if (mainCSRF && mainCSRF.value) {
-					// Update the hidden input in this form
-					var panelCSRF = event.target.querySelector('input[name="csrf"]');
-					if (panelCSRF) {
-						panelCSRF.value = mainCSRF.value;
-					}
-					// Also update in request parameters
-					if (event.detail && event.detail.parameters) {
-						event.detail.parameters['csrf'] = mainCSRF.value;
-					}
+			// Only clear form if request was successful
+			if (event.detail.xhr.status >= 200 && event.detail.xhr.status < 300) {
+				this.querySelector('textarea').value = '';
+				this.querySelector('textarea').style.height = 'auto';
+				// Scroll to new reply after adding it
+				if (typeof scrollToNewReply === 'function') {
+					setTimeout(scrollToNewReply, 100);
 				}
 			}
 		`),
-		// CSRF token in form (will be updated by JavaScript to match main form)
-		If(r.CSRF != "", Input(
-			Type("hidden"),
-			Name("csrf"),
-			ID("thread-panel-csrf"), // Add ID for easier access
-			Value(r.CSRF),
-		)),
+		Attr("hx-on::htmx:response-error", `
+			// Handle errors gracefully - show inline error message instead of replacing content with error page
+			var errorMsg = 'Failed to send reply. Please try again.';
+			
+			// Try to get error message from response body if available
+			if (event.detail.xhr.responseText && event.detail.xhr.responseText.trim()) {
+				errorMsg = event.detail.xhr.responseText.trim();
+			} else {
+				// Fallback to status-based messages
+				if (event.detail.xhr.status === 401 || event.detail.xhr.status === 403) {
+					errorMsg = 'You are not authorized to reply to this message.';
+				} else if (event.detail.xhr.status === 404) {
+					errorMsg = 'Message not found.';
+				} else if (event.detail.xhr.status >= 500) {
+					errorMsg = 'Server error. Please try again later.';
+				}
+			}
+			
+			// Remove existing error message if any
+			var existingError = event.target.querySelector('.thread-reply-error');
+			if (existingError) {
+				existingError.remove();
+			}
+			
+			// Create and show error message inline
+			var errorDiv = document.createElement('div');
+			errorDiv.className = 'thread-reply-error alert alert-error mt-2';
+			errorDiv.textContent = errorMsg;
+			event.target.insertBefore(errorDiv, event.target.firstChild);
+			
+			// Auto-remove error message after 5 seconds
+			setTimeout(function() {
+				if (errorDiv.parentNode) {
+					errorDiv.remove();
+				}
+			}, 5000);
+			
+			event.preventDefault(); // Prevent HTMX from replacing content with error page
+		`),
+		// CSRF token from context - same token used throughout the session
+		components.CSRFInput(r),
 		Div(
 			Class("flex-1"),
 			Textarea(

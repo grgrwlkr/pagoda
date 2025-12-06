@@ -2,6 +2,7 @@ package messenger
 
 import (
 	"github.com/mikestefanello/pagoda/pkg/ui"
+	"github.com/mikestefanello/pagoda/pkg/ui/components"
 	. "maragu.dev/gomponents"
 	. "maragu.dev/gomponents/html"
 )
@@ -55,12 +56,7 @@ func MessageInput(r *ui.Request, channelIDOrDMID int64, isDM bool) Node {
 			Attr("hx-on::after-request", "this.querySelector('textarea').value = ''; this.querySelector('textarea').style.height = 'auto'; document.getElementById('file-preview-container').innerHTML = ''; document.getElementById('file-preview-container').classList.add('hidden'); document.getElementById('file-input').value = '';"),
 
 			// CSRF токен для защиты от подделки запросов
-			// Показываем только если токен есть (для неавторизованных пользователей может не быть)
-			If(r.CSRF != "", Input(
-				Type("hidden"), // Скрытое поле
-				Name("csrf"),
-				Value(r.CSRF),
-			)),
+			components.CSRFInput(r),
 
 			// Контейнер для textarea (занимает всё доступное пространство)
 			Div(

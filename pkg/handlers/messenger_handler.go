@@ -2496,7 +2496,13 @@ func (h *Messenger) MessageReply(ctx echo.Context) error {
 	}
 	logger.Info("Creating reply to message", "parent_message_id", id)
 
-	user := ctx.Get(context.AuthenticatedUserKey).(*ent.User)
+	// Check if user is authenticated
+	userInterface := ctx.Get(context.AuthenticatedUserKey)
+	if userInterface == nil {
+		logger.Warn("Message reply failed: user not authenticated", "parent_message_id", id)
+		return echo.NewHTTPError(http.StatusUnauthorized, "you must be authenticated to reply to messages")
+	}
+	user := userInterface.(*ent.User)
 	logger.Info("Reply creator", "user_id", user.ID, "user_name", user.Name)
 
 	// Get parent message
