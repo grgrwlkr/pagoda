@@ -216,8 +216,18 @@ func renderThreadReplyForm(r *ui.Request, messageID int64) Node {
 		Attr("hx-post", r.Path("messenger.message.reply", messageID)), // HTMX POST запрос
 		Attr("hx-target", fmt.Sprintf("#thread-%d", messageID)),       // Куда вставить ответ
 		Attr("hx-swap", "beforeend"),                                  // Вставить в конец контейнера
+		// Alpine.js для управления состоянием формы
+		Attr("x-data", `{
+			clearForm() {
+				const textarea = this.$el.querySelector('textarea');
+				if (textarea) {
+					textarea.value = '';
+					textarea.style.height = 'auto';
+				}
+			}
+		}`),
 		// hx-on::after-request: выполнить после успешной отправки (очистить textarea)
-		Attr("hx-on::after-request", "this.querySelector('textarea').value = ''; this.querySelector('textarea').style.height = 'auto';"),
+		Attr("hx-on::after-request", "this.clearForm()"),
 
 		// CSRF токен для защиты от подделки запросов
 		If(r.CSRF != "", Input(

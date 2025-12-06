@@ -17,32 +17,29 @@ func FilePreviewContainer() Node {
 			files: [],
 			previews: [],
 			init() {
-				// Listen for file input changes
-				const fileInput = document.getElementById('file-input');
-				if (fileInput) {
-					fileInput.addEventListener('change', (e) => {
-						this.handleFiles(e.target.files);
-					});
-				}
-				// Listen for drag & drop events on textarea
-				const textarea = document.getElementById('message-input');
-				if (textarea) {
-					textarea.addEventListener('drop', (e) => {
-						e.preventDefault();
-						this.handleFiles(e.dataTransfer.files);
+				// Listen for file events from other components
+				this.$el.addEventListener('file-input-change', (e) => {
+					if (e.detail.files) {
+						this.handleFiles(e.detail.files);
+					}
+				});
+				this.$el.addEventListener('file-drop', (e) => {
+					if (e.detail.files) {
+						this.handleFiles(e.detail.files);
 						// Update file input
-						const dataTransfer = new DataTransfer();
-						for (let i = 0; i < e.dataTransfer.files.length; i++) {
-							dataTransfer.items.add(e.dataTransfer.files[i]);
-						}
+						const fileInput = document.getElementById('file-input');
 						if (fileInput) {
+							const dataTransfer = new DataTransfer();
+							for (let i = 0; i < e.detail.files.length; i++) {
+								dataTransfer.items.add(e.detail.files[i]);
+							}
 							fileInput.files = dataTransfer.files;
 						}
-					});
-					textarea.addEventListener('dragover', (e) => {
-						e.preventDefault();
-					});
-				}
+					}
+				});
+				this.$el.addEventListener('clear-files', () => {
+					this.clearFiles();
+				});
 			},
 			handleFiles(fileList) {
 				// Convert FileList to Array and add to existing files
@@ -65,6 +62,7 @@ func FilePreviewContainer() Node {
 			},
 			clearFiles() {
 				this.files = [];
+				// Clear file input
 				const fileInput = document.getElementById('file-input');
 				if (fileInput) {
 					fileInput.value = '';

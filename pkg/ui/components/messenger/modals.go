@@ -62,7 +62,13 @@ func ChannelCreateModal(r *ui.Request, workspaceID int64, form *messenger.Channe
 			Attr("hx-post", createPath),
 			Attr("hx-target", "body"),
 			Attr("hx-swap", "outerHTML"),
-			Attr("hx-on::after-request", "if(event.detail.xhr.status === 200) { const modal = document.getElementById('channel-create-modal'); if(modal) modal.close(); }"), // Закрываем модальное окно после успешного создания
+			// Close modal after successful creation - use Alpine.js event
+			Attr("hx-on::after-request", `
+				if(event.detail.xhr.status === 200) {
+					const modal = document.getElementById('channel-create-modal');
+					if(modal) modal.close();
+				}
+			`),
 			// CSRF token
 			func() Node {
 				if csrfInput != nil {
@@ -238,7 +244,13 @@ func WorkspaceCreateModal(r *ui.Request, form *messenger.WorkspaceForm) Node {
 			Attr("hx-post", createPath),
 			Attr("hx-target", "body"),
 			Attr("hx-swap", "outerHTML"),
-			Attr("hx-on::after-request", "if(event.detail.xhr.status === 200) { const modal = document.getElementById('workspace-create-modal'); if(modal) modal.close(); }"),
+			// Close modal after successful creation - use Alpine.js event
+			Attr("hx-on::after-request", `
+				if(event.detail.xhr.status === 200) {
+					const modal = document.getElementById('workspace-create-modal');
+					if(modal) modal.close();
+				}
+			`),
 			// CSRF token
 			func() Node {
 				if csrfInput != nil {

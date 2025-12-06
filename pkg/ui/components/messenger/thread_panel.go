@@ -188,10 +188,14 @@ func renderThreadPanelReplyForm(r *ui.Request, messageID int64) Node {
 		Attr("hx-on::after-request", `
 			// Only clear form if request was successful
 			if (event.detail.xhr.status >= 200 && event.detail.xhr.status < 300) {
-				this.querySelector('textarea').value = '';
-				this.querySelector('textarea').style.height = 'auto';
-				// Clear error message
+				// Clear form using Alpine.js methods
 				if (this._x_dataStack && this._x_dataStack[0]) {
+					const textarea = this.querySelector('textarea');
+					if (textarea) {
+						textarea.value = '';
+						textarea.style.height = 'auto';
+					}
+					// Clear error message
 					this._x_dataStack[0].errorMessage = '';
 				}
 				// Scroll to new reply after adding it - use Alpine.js store
