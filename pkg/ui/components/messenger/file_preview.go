@@ -6,7 +6,7 @@ import (
 )
 
 // FilePreviewContainer creates a file preview container using Alpine.js.
-// This replaces innerHTML manipulations with Alpine.js reactive state.
+// This uses Alpine.js for File API (File API requires JS).
 // The component shows file previews and allows removing files before upload.
 func FilePreviewContainer() Node {
 	return Div(
@@ -48,6 +48,10 @@ func FilePreviewContainer() Node {
 				this.updatePreviews();
 			},
 			removeFile(index) {
+				// Revoke object URL if it's an image
+				if (this.previews[index] && this.previews[index].url) {
+					URL.revokeObjectURL(this.previews[index].url);
+				}
 				this.files.splice(index, 1);
 				// Update file input
 				const fileInput = document.getElementById('file-input');
@@ -61,6 +65,12 @@ func FilePreviewContainer() Node {
 				this.updatePreviews();
 			},
 			clearFiles() {
+				// Revoke all object URLs
+				this.previews.forEach(preview => {
+					if (preview.url) {
+						URL.revokeObjectURL(preview.url);
+					}
+				});
 				this.files = [];
 				// Clear file input
 				const fileInput = document.getElementById('file-input');
@@ -86,7 +96,7 @@ func FilePreviewContainer() Node {
 		Attr("x-show", "files.length > 0"),
 		// Hidden by default
 		Style("display: none;"),
-		// File previews rendered via Alpine.js x-for (minimal JS for file handling)
+		// File previews rendered via Alpine.js x-for (File API requires JS)
 		// Note: Alpine.js x-for requires template element, so we use Raw HTML
 		Raw(`
 		<template x-for="(preview, index) in previews" :key="index">

@@ -22,7 +22,7 @@ func DirectMessage(ctx echo.Context, dmID int64, otherUserName string, messages 
 		dmHeader(r, dmID, otherUserName),
 		// Messages list
 		messengerComponents.MessageList(r, messages),
-		// Typing indicator (managed via Alpine.js, updated via WebSocket)
+		// Typing indicator (managed via minimal JavaScript, updated via WebSocket)
 		messengerComponents.TypingIndicator(),
 		// Message input
 		messengerComponents.MessageInput(r, dmID, true), // true = is a DM

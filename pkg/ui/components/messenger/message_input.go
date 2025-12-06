@@ -29,13 +29,13 @@ func MessageInput(r *ui.Request, channelIDOrDMID int64, isDM bool) Node {
 		Class("border-t border-base-300 p-4 bg-base-100"), // border-t: верхняя граница; p-4: отступы; bg-base-100: цвет фона
 
 		// Контейнер для превью загружаемых файлов (управляется через Alpine.js)
-		// Заменяет innerHTML манипуляции на Alpine.js реактивное состояние
+		// File API требует JavaScript для работы с файлами
 		FilePreviewContainer(),
 
 		// Основная форма для отправки сообщения
 		Form(
 			Class("flex gap-2"),                    // flex: горизонтальное расположение; gap-2: отступ между элементами
-			ID("message-form"),                     // ID для HTMX и Alpine.js
+			ID("message-form"),                     // ID для HTMX
 			Method("POST"),                         // HTTP метод отправки
 			Action(actionRoute),                    // URL для отправки (fallback для браузеров без JS)
 			Attr("enctype", "multipart/form-data"), // Необходимо для загрузки файлов
@@ -46,27 +46,24 @@ func MessageInput(r *ui.Request, channelIDOrDMID int64, isDM bool) Node {
 			Attr("hx-swap", "beforeend"),               // Вставить в конец списка сообщений
 			Attr("hx-encoding", "multipart/form-data"), // Кодировка для файлов
 			Attr("hx-trigger", "submit"),               // Явно указываем триггер submit
-			// Предотвращаем обычную отправку формы через Alpine.js
-			Attr("@submit.prevent", ""),
+			// HTMX автоматически предотвращает стандартную отправку формы
 			// hx-on::after-request: выполнить после успешной отправки
-			// Очищаем textarea, сбрасываем высоту, очищаем превью файлов через Alpine.js события
-			// Используем Alpine.js для управления состоянием формы
-			Attr("x-data", `{
-				clearForm() {
-					// Clear textarea using Alpine.js
-					const textarea = this.$el.querySelector('textarea');
+			// Очищаем textarea, сбрасываем высоту, очищаем превью файлов
+			Attr("hx-on::after-request", `
+				if(event.detail.xhr.status === 200) {
+					// Clear textarea
+					const textarea = this.querySelector('textarea');
 					if (textarea) {
 						textarea.value = '';
 						textarea.style.height = 'auto';
 					}
-					// Clear file previews via Alpine.js event
+					// Clear file previews via custom event
 					const previewContainer = document.getElementById('file-preview-container');
 					if (previewContainer) {
 						previewContainer.dispatchEvent(new CustomEvent('clear-files'));
 					}
 				}
-			}`),
-			Attr("hx-on::after-request", "this.clearForm()"),
+			`),
 
 			// CSRF токен для защиты от подделки запросов
 			components.CSRFInput(r),
@@ -81,23 +78,20 @@ func MessageInput(r *ui.Request, channelIDOrDMID int64, isDM bool) Node {
 					Placeholder("Type a message... (drag & drop files here)"), // Подсказка в пустом поле
 					Rows("1"), // Начальная высота (1 строка)
 
-					// Alpine.js для автоматического изменения высоты textarea при вводе
+					// Автоматическое изменение высоты textarea при вводе (Alpine.js для textarea resize)
 					Attr("x-data", `{
 						resize() {
-							// Сбрасываем высоту на auto для пересчёта
 							this.$el.style.height = "auto";
-							// Устанавливаем высоту равную содержимому
 							this.$el.style.height = this.$el.scrollHeight + "px";
 						}
 					}`),
-					Attr("@input", "resize()"), // Вызывать resize при каждом вводе текста
+					Attr("@input", "resize()"),
 
-					// Обработка нажатия Enter - используем Alpine.js вместо getElementById
-					// Shift+Enter = новая строка, Enter = отправить сообщение
+					// Обработка нажатия Enter - Shift+Enter = новая строка, Enter = отправить сообщение
 					Attr("@keydown.enter", "if(!event.shiftKey) { event.preventDefault(); document.getElementById('message-form').requestSubmit(); }"),
 
-					// Обработка drag & drop файлов через Alpine.js директивы
-					// Связываемся с FilePreviewContainer через Alpine.js события
+					// Обработка drag & drop файлов
+					// Связываемся с FilePreviewContainer через custom events
 					Attr("@drop.prevent", `
 						const container = document.getElementById('file-preview-container');
 						if (container) {
@@ -124,7 +118,7 @@ func MessageInput(r *ui.Request, channelIDOrDMID int64, isDM bool) Node {
 						Name("files"),    // Имя поля для отправки на сервер (множественное)
 						Class("hidden"),  // Скрываем стандартный input (используем кастомную кнопку)
 						Attr("multiple"), // Разрешаем выбор нескольких файлов
-						// File selection handled by Alpine.js @change directive - dispatch event to FilePreviewContainer
+						// File selection handled by Alpine.js @change - dispatch event to FilePreviewContainer
 						Attr("@change", `
 							const container = document.getElementById('file-preview-container');
 							if (container && event.target.files) {
@@ -148,6 +142,6 @@ func MessageInput(r *ui.Request, channelIDOrDMID int64, isDM bool) Node {
 			),
 		),
 		// File handling is now done via Alpine.js in FilePreviewContainer component
-		// No JavaScript needed - all file preview logic is in Alpine.js
+		// File API requires JavaScript for file preview functionality
 	)
 }

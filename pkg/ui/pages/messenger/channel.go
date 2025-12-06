@@ -21,13 +21,13 @@ func Channel(ctx echo.Context, channelID int64, channelName string, messages []m
 		channelHeader(r, channelID, channelName),
 		// Messages list
 		messengerComponents.MessageList(r, messages),
-		// Typing indicator (managed via Alpine.js, updated via WebSocket)
+		// Typing indicator (managed via minimal JavaScript, updated via WebSocket)
 		messengerComponents.TypingIndicator(),
 		// Message input
 		messengerComponents.MessageInput(r, channelID, false), // false = not a DM
 		// WebSocket connection via HTMX (replaces JavaScript WebSocket)
 		messengerComponents.WebSocketConnection(r, "/ws", channelID, 0),
-		// Hidden HTMX buttons for reloading thread panels (triggered by WebSocket events via Alpine.js)
+		// Hidden HTMX buttons for reloading thread panels (triggered by WebSocket events via minimal JavaScript)
 		// These replace htmx.ajax() and fetch() calls
 		renderWebSocketReloadButtons(r, messages),
 	)
@@ -36,25 +36,32 @@ func Channel(ctx echo.Context, channelID int64, channelName string, messages []m
 }
 
 // renderWebSocketReloadButtons creates hidden HTMX button for reloading thread panel.
-// This button is triggered by WebSocket events via Alpine.js, replacing htmx.ajax() and fetch() calls.
-// The button URL is updated dynamically via Alpine.js before triggering.
+// This button is triggered by WebSocket events via minimal JavaScript, replacing htmx.ajax() and fetch() calls.
+// The button URL is updated dynamically via minimal JavaScript before triggering.
 func renderWebSocketReloadButtons(r *ui.Request, messages []messengerComponents.MessageData) Node {
 	// Create a single universal button that can reload any thread panel
-	// Alpine.js will update the hx-get attribute and trigger click
+	// Minimal JavaScript will update the hx-get attribute and trigger click
 	return Button(
 		ID("ws-reload-thread-button"),
 		Type("button"),
 		Style("display: none;"),
-		Attr("hx-get", ""), // Will be set dynamically by Alpine.js
+		Attr("hx-get", ""), // Will be set dynamically by minimal JavaScript
 		Attr("hx-target", "#right-panel"),
 		Attr("hx-swap", "innerHTML"),
 		Attr("hx-on::after-request", `
-			// Use Alpine.js store method instead of global function
-			if (window.Alpine && window.Alpine.store && window.Alpine.store('threadPanel')) {
-				setTimeout(() => {
-					window.Alpine.store('threadPanel').scrollToNewReply();
-				}, 100);
-			}
+			// Scroll to new reply after reloading thread panel
+			setTimeout(function() {
+				const rightPanel = document.getElementById('right-panel');
+				if (rightPanel && !rightPanel.classList.contains('hidden')) {
+					const contentEl = rightPanel.querySelector('#thread-panel-content');
+					if (contentEl) {
+						contentEl.scrollTo({
+							top: contentEl.scrollHeight,
+							behavior: 'smooth'
+						});
+					}
+				}
+			}, 100);
 		`),
 	)
 }

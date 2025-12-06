@@ -6,7 +6,7 @@ import (
 )
 
 // TypingIndicator creates a typing indicator component using Alpine.js.
-// This replaces innerHTML manipulations with Alpine.js reactive state.
+// This uses Alpine.js for timer management (timers require JS).
 // The component shows who is typing and automatically hides after 3 seconds.
 func TypingIndicator() Node {
 	return Div(
@@ -37,6 +37,9 @@ func TypingIndicator() Node {
 				this.updateDisplay();
 			},
 			clearTyping() {
+				this.typingUsers.forEach((timeout) => {
+					clearTimeout(timeout);
+				});
 				this.typingUsers.clear();
 				this.updateDisplay();
 			},

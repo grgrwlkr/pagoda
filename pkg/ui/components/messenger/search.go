@@ -16,13 +16,6 @@ import (
 func SearchBox(r *ui.Request, workspaceID int64) Node {
 	return Div(
 		Class("p-4 border-b border-base-300"),
-		// Alpine.js для управления видимостью результатов поиска
-		Attr("x-data", `{
-			open: false,
-			showResults(status) {
-				this.open = (status === 200);
-			}
-		}`),
 		Div(
 			Class("relative"),
 			Input(
@@ -36,6 +29,13 @@ func SearchBox(r *ui.Request, workspaceID int64) Node {
 				Attr("hx-target", "#search-results"),
 				Attr("hx-swap", "innerHTML"),
 				Attr("hx-include", "[name='workspace_id']"),
+				// Alpine.js для управления видимостью результатов поиска
+				Attr("x-data", `{
+					open: false,
+					showResults(status) {
+						this.open = (status === 200 && event.detail.xhr.responseText.trim() !== '');
+					}
+				}`),
 				Attr("@focus", "open = true"),
 				Attr("@click", "open = true"),
 				// Show results when HTMX updates content
@@ -57,7 +57,6 @@ func SearchBox(r *ui.Request, workspaceID int64) Node {
 		Div(
 			ID("search-results"),
 			Class("absolute z-50 w-64 mt-2 bg-base-100 border border-base-300 rounded-lg shadow-lg max-h-96 overflow-y-auto"),
-			// Use Alpine.js x-show instead of classList manipulation
 			Attr("x-show", "open"),
 			Style("display: none;"), // Hidden by default
 		),

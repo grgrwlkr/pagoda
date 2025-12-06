@@ -30,9 +30,6 @@ func Messenger(r *ui.Request, content Node) Node {
 			),
 			Body(
 				Class("h-screen overflow-hidden"),
-				// Alpine.js stores for component management
-				ThreadPanelStore(),
-				ModalStore(),
 				Div(
 					Class("flex h-full"),
 					// Left sidebar - Workspaces, Channels, DMs
@@ -61,8 +58,30 @@ func Messenger(r *ui.Request, content Node) Node {
 						ID("right-panel-backdrop"),
 						Class("hidden fixed inset-0 bg-black/50 z-40 lg:hidden"),
 						Class("transition-opacity duration-300 ease-in-out"),
-						// Use Alpine.js store method instead of onclick
-						Attr("@click", "$store.threadPanel.closeThreadPanel()"),
+						// Use Alpine.js for panel management
+						Attr("x-data", `{
+							closePanel() {
+								const rightPanel = document.getElementById('right-panel');
+								const backdrop = document.getElementById('right-panel-backdrop');
+								if (rightPanel) {
+									// Hide backdrop first (fade out)
+									if (backdrop) {
+										backdrop.style.opacity = '0';
+										setTimeout(() => {
+											backdrop.classList.add('hidden');
+										}, 300);
+									}
+									// Slide out on mobile, fade out on desktop
+									rightPanel.classList.add('translate-x-full');
+									// Hide panel after animation completes
+									setTimeout(() => {
+										rightPanel.classList.add('hidden');
+										rightPanel.removeAttribute('data-thread-id');
+									}, 300);
+								}
+							}
+						}`),
+						Attr("@click", "closePanel()"),
 					),
 				),
 			),

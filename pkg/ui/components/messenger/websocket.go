@@ -10,7 +10,7 @@ import (
 )
 
 // WebSocketConnection creates an HTMX WebSocket connection component with Alpine.js for message handling.
-// This replaces pure JavaScript WebSocket connections with HTMX WebSocket extension + Alpine.js.
+// This uses Alpine.js for WebSocket message processing (WebSocket requires JS).
 // Parameters:
 //   - r: UI request with context
 //   - wsPath: WebSocket path (e.g., "/ws")
@@ -18,7 +18,7 @@ import (
 //   - dmID: Direct message ID for joining (0 if not a DM)
 //
 // Returns:
-//   - HTML node with HTMX WebSocket connection and Alpine.js message handler
+//   - HTML node with HTMX WebSocket connection and minimal JavaScript message handler
 func WebSocketConnection(r *ui.Request, wsPath string, channelID, dmID int64) Node {
 	// Prepare join message data
 	var joinMessage map[string]interface{}
@@ -44,13 +44,12 @@ func WebSocketConnection(r *ui.Request, wsPath string, channelID, dmID int64) No
 	}
 
 	// Create Alpine.js component for WebSocket message handling
-	// This replaces pure JavaScript message handlers
+	// This uses Alpine.js for WebSocket message processing (WebSocket requires JS)
 	alpineData := fmt.Sprintf(`{
 		channelID: %d,
 		dmID: %d,
-		typingUsers: new Map(),
 		handleMessage(message) {
-			// Handle WebSocket messages via Alpine.js (allowed by rules)
+			// Handle WebSocket messages via Alpine.js
 			const msg = typeof message === 'string' ? JSON.parse(message) : message;
 			switch(msg.type) {
 				case 'message_new':
@@ -86,7 +85,7 @@ func WebSocketConnection(r *ui.Request, wsPath string, channelID, dmID int64) No
 				if (rightPanel && !rightPanel.classList.contains('hidden')) {
 					const panelThreadId = rightPanel.getAttribute('data-thread-id');
 					if (panelThreadId && parseInt(panelThreadId) === data.thread_id) {
-						// Reload thread panel via HTMX - update button URL and trigger click (minimal JS)
+						// Reload thread panel via HTMX - update button URL and trigger click
 						const reloadBtn = document.getElementById('ws-reload-thread-button');
 						if (reloadBtn) {
 							reloadBtn.setAttribute('hx-get', '/message/' + panelThreadId + '/thread/panel');
@@ -106,26 +105,19 @@ func WebSocketConnection(r *ui.Request, wsPath string, channelID, dmID int64) No
 			console.log('Message edited:', data.message_id);
 		},
 		handleMessageDeleted(data) {
-			// Remove message element via Alpine.js (minimal DOM manipulation)
+			// Remove message element
 			const el = document.getElementById('message-' + data.message_id);
 			if (el) {
-				// Use HTMX to remove element or just hide it
 				el.remove();
 			}
 		},
 		handleUserTyping(data) {
-			// Use Alpine.js component method instead of innerHTML
+			// Trigger custom event for typing indicator
 			const container = document.getElementById('typing-indicator-container');
-			if (container && container._x_dataStack && container._x_dataStack[0]) {
-				// Call Alpine.js method to show typing indicator
-				container._x_dataStack[0].showTyping(data.user_id, data.user_name || 'Someone');
-			} else {
-				// Fallback: trigger custom event that Alpine.js can listen to
-				if (container) {
-					container.dispatchEvent(new CustomEvent('show-typing', {
-						detail: { userID: data.user_id, userName: data.user_name || 'Someone' }
-					}));
-				}
+			if (container) {
+				container.dispatchEvent(new CustomEvent('show-typing', {
+					detail: { userID: data.user_id, userName: data.user_name || 'Someone' }
+				}));
 			}
 		},
 		handleUserStatus(data, isOnline) {
@@ -133,16 +125,10 @@ func WebSocketConnection(r *ui.Request, wsPath string, channelID, dmID int64) No
 			console.log('User status:', data.user_id, isOnline);
 		},
 		clearTypingIndicator() {
-			// Use Alpine.js component method instead of innerHTML
+			// Trigger custom event for typing indicator
 			const container = document.getElementById('typing-indicator-container');
-			if (container && container._x_dataStack && container._x_dataStack[0]) {
-				// Call Alpine.js method to clear typing indicator
-				container._x_dataStack[0].clearTyping();
-			} else {
-				// Fallback: trigger custom event
-				if (container) {
-					container.dispatchEvent(new CustomEvent('clear-typing'));
-				}
+			if (container) {
+				container.dispatchEvent(new CustomEvent('clear-typing'));
 			}
 		},
 		scrollToBottom() {
@@ -161,29 +147,30 @@ func WebSocketConnection(r *ui.Request, wsPath string, channelID, dmID int64) No
 		Attr("x-data", alpineData), // Alpine.js component for message handling
 		// Handle WebSocket messages via Alpine.js
 		Attr("hx-on::htmx:ws-message", "handleMessage(event.detail.message)"),
-		// Hidden form for sending join message via HTMX WebSocket
-		// This replaces htmx.trigger() call
-		If(len(joinMessageJSON) > 0,
-			Form(
-				ID("ws-join-form"),
-				Attr("ws-send"), // HTMX will send form data over WebSocket
-				Style("display: none;"),
-				Input(
-					Type("hidden"),
-					Name("message"),
-					Value(string(joinMessageJSON)),
+			// Hidden form for sending join message via HTMX WebSocket
+			// This replaces htmx.trigger() call
+			If(len(joinMessageJSON) > 0,
+				Form(
+					ID("ws-join-form"),
+					Attr("ws-send"), // HTMX will send form data over WebSocket
+					Style("display: none;"),
+					Input(
+						Type("hidden"),
+						Name("message"),
+						Value(string(joinMessageJSON)),
+					),
 				),
 			),
-		),
-		// Trigger form submission on WebSocket connect
-		Attr("hx-on::htmx:ws-connect", `
+			// Trigger form submission on WebSocket connect
+			Attr("hx-on::htmx:ws-connect", `
 			// Send join message via HTMX form (replaces htmx.trigger)
 			const joinForm = document.getElementById('ws-join-form');
 			if (joinForm) {
 				joinForm.requestSubmit();
 			}
 		`),
-		// Hidden container for WebSocket connection
-		Style("display: none;"),
-	)
+			// Hidden container for WebSocket connection
+			Style("display: none;"),
+		),
+	}
 }

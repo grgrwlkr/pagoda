@@ -143,19 +143,32 @@ func messageItem(r *ui.Request, msg MessageData) Node {
 					// hx-swap: как вставлять (innerHTML - заменить содержимое)
 					Attr("hx-swap", "innerHTML"),
 					// hx-on::after-request: показать панель после загрузки с анимацией
-					// Use Alpine.js store method instead of global function
+					// Use HTMX + CSS transitions (no Alpine.js needed)
 					Attr("hx-on::after-request", fmt.Sprintf(`
-						if (window.Alpine && window.Alpine.store && window.Alpine.store('threadPanel')) {
-							window.Alpine.store('threadPanel').openThreadPanel('%d');
-						} else {
-							// Fallback if Alpine.js store not available
+						if(event.detail.xhr.status === 200) {
 							var rightPanel = document.getElementById('right-panel');
+							var backdrop = document.getElementById('right-panel-backdrop');
 							if (rightPanel) {
-								rightPanel.classList.remove('hidden');
 								rightPanel.setAttribute('data-thread-id', '%d');
+								rightPanel.classList.remove('hidden');
+								// Trigger animation
+								requestAnimationFrame(function() {
+									rightPanel.classList.remove('translate-x-full');
+									if (backdrop) {
+										backdrop.classList.remove('hidden');
+										backdrop.style.opacity = '1';
+									}
+								});
+								// Scroll to bottom
+								setTimeout(function() {
+									var contentEl = rightPanel.querySelector('#thread-panel-content');
+									if (contentEl) {
+										contentEl.scrollTop = contentEl.scrollHeight;
+									}
+								}, 100);
 							}
 						}
-					`, msg.ID, msg.ID)),
+					`, msg.ID)),
 					// Предотвращаем стандартное поведение кнопки
 					Attr("@click", "event.preventDefault(); return false;"),
 					Text("💬 Reply"),
@@ -173,20 +186,45 @@ func messageItem(r *ui.Request, msg MessageData) Node {
 						// hx-swap: как вставлять (innerHTML - заменить содержимое)
 						Attr("hx-swap", "innerHTML"),
 						// hx-on::after-request: показать панель после загрузки с анимацией
-						// Используем Alpine.js store для плавного переключения между тредами
+						// Use HTMX + CSS transitions for smooth switching between threads
 						Attr("hx-on::after-request", fmt.Sprintf(`
-							if (window.Alpine && window.Alpine.store && window.Alpine.store('threadPanel')) {
-								window.Alpine.store('threadPanel').switchThreadPanel('%d');
-							} else {
-								// Fallback if Alpine.js store not available
+							if(event.detail.xhr.status === 200) {
 								var rightPanel = document.getElementById('right-panel');
+								var backdrop = document.getElementById('right-panel-backdrop');
 								if (rightPanel) {
-									rightPanel.classList.remove('hidden');
-									rightPanel.setAttribute('data-thread-id', '%d');
+									var currentThreadId = rightPanel.getAttribute('data-thread-id');
+									// Save scroll position if switching threads
+									if (currentThreadId && currentThreadId !== '%d') {
+										var contentEl = rightPanel.querySelector('#thread-panel-content');
+										if (contentEl) {
+											// Save scroll position (could use sessionStorage for persistence)
+										}
+									}
+									// Close current panel (without animation for smooth transition)
+									rightPanel.classList.add('hidden');
+									// Open new thread panel
+									setTimeout(function() {
+										rightPanel.setAttribute('data-thread-id', '%d');
+										rightPanel.classList.remove('hidden');
+										requestAnimationFrame(function() {
+											rightPanel.classList.remove('translate-x-full');
+											if (backdrop) {
+												backdrop.classList.remove('hidden');
+												backdrop.style.opacity = '1';
+											}
+										});
+										// Scroll to bottom
+										setTimeout(function() {
+											var contentEl = rightPanel.querySelector('#thread-panel-content');
+											if (contentEl) {
+												contentEl.scrollTop = contentEl.scrollHeight;
+											}
+										}, 100);
+									}, 50);
 								}
 							}
 						`, msg.ID, msg.ID)),
-						// Предотвращаем стандартное поведение кнопки через Alpine.js
+						// Предотвращаем стандартное поведение кнопки
 						Attr("@click.prevent", ""),
 						Text(fmt.Sprintf("%d %s", msg.ReplyCount, pluralize(msg.ReplyCount, "reply", "replies"))), // Правильное склонение (1 reply, 2 replies)
 					),
@@ -216,26 +254,18 @@ func renderThreadReplyForm(r *ui.Request, messageID int64) Node {
 		Attr("hx-post", r.Path("messenger.message.reply", messageID)), // HTMX POST запрос
 		Attr("hx-target", fmt.Sprintf("#thread-%d", messageID)),       // Куда вставить ответ
 		Attr("hx-swap", "beforeend"),                                  // Вставить в конец контейнера
-		// Alpine.js для управления состоянием формы
-		// Alpine.js для управления состоянием формы (видимость и очистка)
-		Attr("x-data", `{
-			visible: true,
-			clearForm() {
-				const textarea = this.$el.querySelector('textarea');
+		// Управление состоянием формы через HTMX (без Alpine.js)
+		// Форма видима по умолчанию, скрывается через CSS класс при необходимости
+		// hx-on::after-request: выполнить после успешной отправки (очистить textarea)
+		Attr("hx-on::after-request", `
+			if(event.detail.xhr.status === 200) {
+				const textarea = this.querySelector('textarea');
 				if (textarea) {
 					textarea.value = '';
 					textarea.style.height = 'auto';
 				}
-			},
-			hideForm() {
-				this.visible = false;
 			}
-		}`),
-		// Управление видимостью через Alpine.js x-show
-		Attr("x-show", "visible"),
-		Style("display: none;"), // Hidden by default, Alpine.js will show when visible=true
-		// hx-on::after-request: выполнить после успешной отправки (очистить textarea)
-		Attr("hx-on::after-request", "this.clearForm()"),
+		`),
 
 		// CSRF токен для защиты от подделки запросов
 		If(r.CSRF != "", Input(
@@ -253,14 +283,14 @@ func renderThreadReplyForm(r *ui.Request, messageID int64) Node {
 				Placeholder("Write a reply..."),                                // Подсказка в пустом поле
 				Rows("2"),                                                      // Начальная высота (2 строки)
 				Required(),                                                     // Обязательное поле
-				// Alpine.js для автоматического изменения высоты textarea при вводе
+				// Автоматическое изменение высоты textarea при вводе (Alpine.js)
 				Attr("x-data", `{
 					resize() {
-						this.$el.style.height = "auto"; // Сброс высоты
-						this.$el.style.height = this.$el.scrollHeight + "px"; // Установка высоты по содержимому
+						this.$el.style.height = "auto";
+						this.$el.style.height = this.$el.scrollHeight + "px";
 					}
 				}`),
-				Attr("@input", "resize()"), // Вызывать resize при каждом вводе
+				Attr("@input", "resize()"),
 			),
 		),
 
@@ -273,11 +303,11 @@ func renderThreadReplyForm(r *ui.Request, messageID int64) Node {
 				Class("btn btn-primary btn-sm"), // btn-primary: основная кнопка; btn-sm: маленький размер
 				Text("Reply"),
 			),
-			// Кнопка отмены (скрывает форму) - используем Alpine.js метод
+			// Кнопка отмены (скрывает форму) - используем Alpine.js
 			Button(
 				Type("button"),                // Не отправляет форму
 				Class("btn btn-ghost btn-sm"), // btn-ghost: прозрачная кнопка
-				Attr("@click", "hideForm()"),  // Скрываем форму через Alpine.js метод
+				Attr("@click", "this.closest('form').style.display = 'none';"),
 				Text("Cancel"),
 			),
 		),

@@ -78,10 +78,20 @@ func WorkspaceSelect(ctx echo.Context, workspaces []*ent.Workspace) error {
 				Button(
 					Class("btn btn-outline btn-primary"),
 					Text("+ Create New Workspace"),
-					Attr("@click", "$store.modal.openModal('workspace-create-modal')"),
 					Attr("hx-get", createFormPath),
-					Attr("hx-target", "#workspace-create-modal"),
-					Attr("hx-swap", "outerHTML"),
+					Attr("hx-target", "body"),
+					Attr("hx-swap", "beforeend"),
+					// Open modal after HTMX loads it
+					Attr("hx-on::after-request", `
+						if(event.detail.xhr.status === 200) {
+							const modal = document.getElementById('workspace-create-modal');
+							if (modal && modal.tagName === 'DIALOG' && typeof modal.showModal === 'function') {
+								requestAnimationFrame(function() {
+									modal.showModal();
+								});
+							}
+						}
+					`),
 				),
 			),
 		),

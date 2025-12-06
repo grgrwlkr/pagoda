@@ -35,10 +35,32 @@ func ThreadPanel(r *ui.Request, parent MessageData, replies []MessageData, hasMo
 					Text("Thread"),
 				),
 			),
-			// Close button - use Alpine.js store method instead of onclick
+			// Close button - use Alpine.js for panel management
 			Button(
 				Class("btn btn-ghost btn-sm btn-circle"),
-				Attr("@click", "$store.threadPanel.closeThreadPanel()"),
+				Attr("x-data", `{
+					closePanel() {
+						const rightPanel = document.getElementById('right-panel');
+						const backdrop = document.getElementById('right-panel-backdrop');
+						if (rightPanel) {
+							// Hide backdrop first (fade out)
+							if (backdrop) {
+								backdrop.style.opacity = '0';
+								setTimeout(() => {
+									backdrop.classList.add('hidden');
+								}, 300);
+							}
+							// Slide out on mobile, fade out on desktop
+							rightPanel.classList.add('translate-x-full');
+							// Hide panel after animation completes
+							setTimeout(() => {
+								rightPanel.classList.add('hidden');
+								rightPanel.removeAttribute('data-thread-id');
+							}, 300);
+						}
+					}
+				}`),
+				Attr("@click", "closePanel()"),
 				Text("✕"),
 			),
 		),
@@ -166,6 +188,7 @@ func renderThreadPanelReplyForm(r *ui.Request, messageID int64) Node {
 					Placeholder("Write a reply..."),
 					Rows("2"),
 					Required(),
+					// Автоматическое изменение высоты textarea при вводе (Alpine.js)
 					Attr("x-data", `{
 						resize() {
 							this.$el.style.height = "auto";
@@ -198,12 +221,19 @@ func renderThreadPanelReplyForm(r *ui.Request, messageID int64) Node {
 					// Clear error message
 					this._x_dataStack[0].errorMessage = '';
 				}
-				// Scroll to new reply after adding it - use Alpine.js store
-				if (window.Alpine && window.Alpine.store && window.Alpine.store('threadPanel')) {
-					setTimeout(() => {
-						window.Alpine.store('threadPanel').scrollToNewReply();
-					}, 100);
-				}
+				// Scroll to new reply after adding it
+				setTimeout(() => {
+					const rightPanel = document.getElementById('right-panel');
+					if (rightPanel && !rightPanel.classList.contains('hidden')) {
+						const contentEl = rightPanel.querySelector('#thread-panel-content');
+						if (contentEl) {
+							contentEl.scrollTo({
+								top: contentEl.scrollHeight,
+								behavior: 'smooth'
+							});
+						}
+					}
+				}, 100);
 			}
 		`),
 		Attr("hx-on::htmx:response-error", `
