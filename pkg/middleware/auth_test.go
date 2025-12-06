@@ -86,7 +86,7 @@ func TestLoadValidPasswordToken(t *testing.T) {
 	_ = tests.ExecuteMiddleware(ctx, LoadUser(c.ORM))
 	err = tests.ExecuteMiddleware(ctx, LoadValidPasswordToken(c.Auth))
 	assert.NoError(t, err)
-	assert.Equal(t, http.StatusFound, ctx.Response().Status)
+	assert.Equal(t, http.StatusTemporaryRedirect, ctx.Response().Status)
 
 	// Add user context and invalid password token and expect a redirect
 	ctx.SetParamNames("user", "password_token", "token")
@@ -94,7 +94,7 @@ func TestLoadValidPasswordToken(t *testing.T) {
 	_ = tests.ExecuteMiddleware(ctx, LoadUser(c.ORM))
 	err = tests.ExecuteMiddleware(ctx, LoadValidPasswordToken(c.Auth))
 	assert.NoError(t, err)
-	assert.Equal(t, http.StatusFound, ctx.Response().Status)
+	assert.Equal(t, http.StatusTemporaryRedirect, ctx.Response().Status)
 
 	// Create a valid token
 	token, pt, err := c.Auth.GeneratePasswordResetToken(ctx, usr.ID)
