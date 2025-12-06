@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/mikestefanello/pagoda/ent"
+	"github.com/mikestefanello/pagoda/ent/channelmember"
 	"github.com/mikestefanello/pagoda/ent/message"
+	"github.com/mikestefanello/pagoda/ent/workspacemember"
 	"github.com/mikestefanello/pagoda/pkg/routenames"
 
 	"github.com/PuerkitoBio/goquery"
@@ -3660,16 +3662,446 @@ func TestMessengerMessageReply_UnauthorizedUserCannotReply(t *testing.T) {
 					"Unauthorized user should not be able to add reply. Got status %d", resp2.StatusCode)
 
 				// Verify no reply was created in database
-				replies, err := c.ORM.Message.
-					Query().
-					Where(message.ThreadIDEQ(int(parentMessage.ID))).
-					All(ctx)
+				allMessages, err := c.ORM.Message.Query().All(ctx)
 				require.NoError(t, err)
-				assert.Equal(t, 0, len(replies), "No reply should be created by unauthorized user")
+				replyFound := false
+				for _, msg := range allMessages {
+					if msg.ThreadID != nil && *msg.ThreadID == parentMessage.ID {
+						replyFound = true
+						break
+					}
+				}
+				assert.False(t, replyFound, "No reply should be created for unauthorized user")
 			}
 		}
-		if resp != nil {
-			resp.Body.Close()
+	}
+}
+
+// TestMessengerMessageReply_InvalidCSRFToken tests all possible CSRF token validation failures in thread replies
+func TestMessengerMessageReply_InvalidCSRFToken(t *testing.T) {
+	ctx := context.Background()
+
+	// Arrange
+	usr := createTestUser(t, "csrf-test@example.com", "CSRF Test", "password123")
+	defer func() {
+		messages, _ := c.ORM.Message.Query().All(ctx)
+		for _, msg := range messages {
+			c.ORM.Message.DeleteOneID(msg.ID).ExecX(ctx)
+		}
+		channels, _ := c.ORM.Channel.Query().All(ctx)
+		for _, ch := range channels {
+			c.ORM.ChannelMember.Delete().ExecX(ctx)
+			c.ORM.Channel.DeleteOneID(ch.ID).ExecX(ctx)
+		}
+		workspaces, _ := c.ORM.Workspace.Query().All(ctx)
+		for _, ws := range workspaces {
+			c.ORM.WorkspaceMember.Delete().ExecX(ctx)
+			c.ORM.Workspace.DeleteOneID(ws.ID).ExecX(ctx)
+		}
+		c.ORM.User.DeleteOneID(usr.ID).ExecX(ctx)
+	}()
+
+	// Create workspace, channel and parent message
+	workspace, err := c.ORM.Workspace.Create().
+		SetName("Test Workspace").
+		SetSlug("test-workspace").
+		SetOwnerID(int(usr.ID)).
+		Save(ctx)
+	require.NoError(t, err)
+
+	_, err = c.ORM.WorkspaceMember.Create().
+		SetWorkspaceID(workspace.ID).
+		SetUserID(int(usr.ID)).
+		SetRole("member").
+		Save(ctx)
+	require.NoError(t, err)
+
+	channel, err := c.ORM.Channel.Create().
+		SetName("Test Channel").
+		SetSlug("test-channel").
+		SetWorkspaceID(workspace.ID).
+		SetCreatedBy(int(usr.ID)).
+		Save(ctx)
+	require.NoError(t, err)
+
+	_, err = c.ORM.ChannelMember.Create().
+		SetChannelID(channel.ID).
+		SetUserID(int(usr.ID)).
+		Save(ctx)
+	require.NoError(t, err)
+
+	parentMessage, err := c.ORM.Message.Create().
+		SetContent("Parent message for CSRF test").
+		SetChannelID(channel.ID).
+		SetUserID(int(usr.ID)).
+		Save(ctx)
+	require.NoError(t, err)
+
+	client := authenticateUser(t, "csrf-test@example.com", "password123")
+
+	// Get valid CSRF token and cookie from channel view
+	viewURL := srv.URL + c.Web.Reverse(routenames.MessengerChannelView, channel.ID)
+	resp, err := client.Get(viewURL)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	csrf := doc.Find(`input[name="csrf"]`).First()
+	validToken, exists := csrf.Attr("value")
+	require.True(t, exists, "CSRF token should exist")
+	require.NotEmpty(t, validToken, "CSRF token should not be empty")
+
+	// Get CSRF cookie
+	var validCSRFCookie string
+	for _, cookie := range resp.Cookies() {
+		if cookie.Name == "_csrf" {
+			validCSRFCookie = cookie.Value
+			break
 		}
 	}
+	require.NotEmpty(t, validCSRFCookie, "CSRF cookie should be set")
+
+	// Load thread panel to get CSRF token from panel
+	panelURL := srv.URL + c.Web.Reverse(routenames.MessengerMessageThreadPanel, parentMessage.ID)
+	if panelURL == srv.URL {
+		panelURL = srv.URL + fmt.Sprintf("/message/%d/thread/panel", parentMessage.ID)
+	}
+
+	req, err := http.NewRequest("GET", panelURL, nil)
+	require.NoError(t, err)
+	req.Header.Set("HX-Request", "true")
+
+	resp2, err := client.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp2.StatusCode)
+	resp2.Body.Close()
+
+	replyURL := srv.URL + c.Web.Reverse(routenames.MessengerMessageReply, parentMessage.ID)
+	if replyURL == srv.URL {
+		replyURL = srv.URL + fmt.Sprintf("/message/%d/replies", parentMessage.ID)
+	}
+
+	// Test Case 1: Missing CSRF token in form
+	t.Run("MissingCSRFToken", func(t *testing.T) {
+		body := url.Values{}
+		// No CSRF token
+		body.Set("content", "Reply without CSRF token")
+
+		req, err := http.NewRequest("POST", replyURL, strings.NewReader(body.Encode()))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("HX-Request", "true")
+
+		// Add valid CSRF cookie but no token in form
+		req.AddCookie(&http.Cookie{Name: "_csrf", Value: validCSRFCookie})
+
+		// Copy session cookies
+		for _, cookie := range client.Jar.Cookies(resp.Request.URL) {
+			req.AddCookie(cookie)
+		}
+
+		resp3, err := client.Do(req)
+		require.NoError(t, err)
+		defer resp3.Body.Close()
+
+		// Should return 400 Bad Request or 403 Forbidden for missing CSRF token
+		assert.True(t, resp3.StatusCode == http.StatusBadRequest || resp3.StatusCode == http.StatusForbidden,
+			"Expected HTTP status 400 or 403 for missing CSRF token, got %d", resp3.StatusCode)
+
+		// Verify no reply was created
+		allMessages, err := c.ORM.Message.Query().All(ctx)
+		require.NoError(t, err)
+		replyFound := false
+		for _, msg := range allMessages {
+			if msg.ThreadID != nil && *msg.ThreadID == parentMessage.ID && msg.Content == "Reply without CSRF token" {
+				replyFound = true
+				break
+			}
+		}
+		assert.False(t, replyFound, "No reply should be created without CSRF token")
+	})
+
+	// Test Case 2: Invalid CSRF token (doesn't match cookie)
+	t.Run("InvalidCSRFToken", func(t *testing.T) {
+		body := url.Values{}
+		body.Set("csrf", "invalid-csrf-token-12345") // Invalid token
+		body.Set("content", "Reply with invalid CSRF token")
+
+		req, err := http.NewRequest("POST", replyURL, strings.NewReader(body.Encode()))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("HX-Request", "true")
+
+		// Add valid CSRF cookie but invalid token in form
+		req.AddCookie(&http.Cookie{Name: "_csrf", Value: validCSRFCookie})
+
+		// Copy session cookies
+		for _, cookie := range client.Jar.Cookies(resp.Request.URL) {
+			req.AddCookie(cookie)
+		}
+
+		resp3, err := client.Do(req)
+		require.NoError(t, err)
+		defer resp3.Body.Close()
+
+		// Should return 400 Bad Request or 403 Forbidden for invalid CSRF token
+		assert.True(t, resp3.StatusCode == http.StatusBadRequest || resp3.StatusCode == http.StatusForbidden,
+			"Expected HTTP status 400 or 403 for invalid CSRF token, got %d", resp3.StatusCode)
+
+		// Verify no reply was created
+		allMessages, err := c.ORM.Message.Query().All(ctx)
+		require.NoError(t, err)
+		replyFound := false
+		for _, msg := range allMessages {
+			if msg.ThreadID != nil && *msg.ThreadID == parentMessage.ID && msg.Content == "Reply with invalid CSRF token" {
+				replyFound = true
+				break
+			}
+		}
+		assert.False(t, replyFound, "No reply should be created with invalid CSRF token")
+	})
+
+	// Test Case 3: CSRF token from different session (token doesn't match cookie)
+	t.Run("CSRFTokenMismatch", func(t *testing.T) {
+		// Create another user to get a different CSRF token
+		otherUser := createTestUser(t, "csrf-other@example.com", "CSRF Other", "password123")
+		defer func() {
+			// Clean up: remove user's memberships first
+			c.ORM.ChannelMember.Delete().Where(channelmember.UserIDEQ(int(otherUser.ID))).ExecX(ctx)
+			c.ORM.WorkspaceMember.Delete().Where(workspacemember.UserIDEQ(int(otherUser.ID))).ExecX(ctx)
+			c.ORM.User.DeleteOneID(otherUser.ID).ExecX(ctx)
+		}()
+
+		// Add other user to workspace and channel so they can access the channel view
+		_, err := c.ORM.WorkspaceMember.Create().
+			SetWorkspaceID(workspace.ID).
+			SetUserID(int(otherUser.ID)).
+			SetRole("member").
+			Save(ctx)
+		require.NoError(t, err)
+
+		_, err = c.ORM.ChannelMember.Create().
+			SetChannelID(channel.ID).
+			SetUserID(int(otherUser.ID)).
+			Save(ctx)
+		require.NoError(t, err)
+
+		otherClient := authenticateUser(t, "csrf-other@example.com", "password123")
+
+		// Get CSRF token from other user's session
+		otherResp, err := otherClient.Get(viewURL)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, otherResp.StatusCode)
+
+		otherDoc, err := goquery.NewDocumentFromReader(otherResp.Body)
+		require.NoError(t, err)
+		otherResp.Body.Close()
+
+		otherCSRF := otherDoc.Find(`input[name="csrf"]`).First()
+		otherToken, exists := otherCSRF.Attr("value")
+		require.True(t, exists, "Other user's CSRF token should exist")
+		require.NotEmpty(t, otherToken, "Other user's CSRF token should not be empty")
+
+		// Try to use other user's token with first user's cookie
+		body := url.Values{}
+		body.Set("csrf", otherToken) // Token from other session
+		body.Set("content", "Reply with mismatched CSRF token")
+
+		req, err := http.NewRequest("POST", replyURL, strings.NewReader(body.Encode()))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("HX-Request", "true")
+
+		// Use first user's cookie but other user's token
+		req.AddCookie(&http.Cookie{Name: "_csrf", Value: validCSRFCookie})
+
+		// Copy session cookies from first user
+		for _, cookie := range client.Jar.Cookies(resp.Request.URL) {
+			req.AddCookie(cookie)
+		}
+
+		resp3, err := client.Do(req)
+		require.NoError(t, err)
+		defer resp3.Body.Close()
+
+		// Should return 400 Bad Request or 403 Forbidden for mismatched CSRF token
+		// Echo CSRF middleware returns 403 for token mismatch
+		assert.True(t, resp3.StatusCode == http.StatusBadRequest || resp3.StatusCode == http.StatusForbidden,
+			"Expected HTTP status 400 or 403 for mismatched CSRF token, got %d", resp3.StatusCode)
+
+		// Verify no reply was created
+		allMessages, err := c.ORM.Message.Query().All(ctx)
+		require.NoError(t, err)
+		replyFound := false
+		for _, msg := range allMessages {
+			if msg.ThreadID != nil && *msg.ThreadID == parentMessage.ID && msg.Content == "Reply with mismatched CSRF token" {
+				replyFound = true
+				break
+			}
+		}
+		assert.False(t, replyFound, "No reply should be created with mismatched CSRF token")
+	})
+
+	// Test Case 4: Missing CSRF cookie
+	t.Run("MissingCSRFCookie", func(t *testing.T) {
+		body := url.Values{}
+		body.Set("csrf", validToken) // Valid token
+		body.Set("content", "Reply without CSRF cookie")
+
+		req, err := http.NewRequest("POST", replyURL, strings.NewReader(body.Encode()))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("HX-Request", "true")
+
+		// Don't add CSRF cookie - only add session cookies
+		for _, cookie := range client.Jar.Cookies(resp.Request.URL) {
+			if cookie.Name != "_csrf" { // Skip CSRF cookie
+				req.AddCookie(cookie)
+			}
+		}
+
+		resp3, err := client.Do(req)
+		require.NoError(t, err)
+		defer resp3.Body.Close()
+
+		// Should return 400 Bad Request or 403 Forbidden for missing CSRF cookie
+		assert.True(t, resp3.StatusCode == http.StatusBadRequest || resp3.StatusCode == http.StatusForbidden,
+			"Expected HTTP status 400 or 403 for missing CSRF cookie, got %d", resp3.StatusCode)
+
+		// Verify no reply was created
+		allMessages, err := c.ORM.Message.Query().All(ctx)
+		require.NoError(t, err)
+		replyFound := false
+		for _, msg := range allMessages {
+			if msg.ThreadID != nil && *msg.ThreadID == parentMessage.ID && msg.Content == "Reply without CSRF cookie" {
+				replyFound = true
+				break
+			}
+		}
+		assert.False(t, replyFound, "No reply should be created without CSRF cookie")
+	})
+
+	// Test Case 5: Invalid CSRF cookie (doesn't match token)
+	t.Run("InvalidCSRFCookie", func(t *testing.T) {
+		body := url.Values{}
+		body.Set("csrf", validToken) // Valid token
+		body.Set("content", "Reply with invalid CSRF cookie")
+
+		req, err := http.NewRequest("POST", replyURL, strings.NewReader(body.Encode()))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("HX-Request", "true")
+
+		// Add invalid CSRF cookie that doesn't match the token
+		req.AddCookie(&http.Cookie{Name: "_csrf", Value: "invalid-csrf-cookie-12345"})
+
+		// Copy session cookies
+		for _, cookie := range client.Jar.Cookies(resp.Request.URL) {
+			req.AddCookie(cookie)
+		}
+
+		resp3, err := client.Do(req)
+		require.NoError(t, err)
+		defer resp3.Body.Close()
+
+		// Should return 400 Bad Request or 403 Forbidden for invalid CSRF cookie
+		assert.True(t, resp3.StatusCode == http.StatusBadRequest || resp3.StatusCode == http.StatusForbidden,
+			"Expected HTTP status 400 or 403 for invalid CSRF cookie, got %d", resp3.StatusCode)
+
+		// Verify no reply was created
+		allMessages, err := c.ORM.Message.Query().All(ctx)
+		require.NoError(t, err)
+		replyFound := false
+		for _, msg := range allMessages {
+			if msg.ThreadID != nil && *msg.ThreadID == parentMessage.ID && msg.Content == "Reply with invalid CSRF cookie" {
+				replyFound = true
+				break
+			}
+		}
+		assert.False(t, replyFound, "No reply should be created with invalid CSRF cookie")
+	})
+
+	// Test Case 6: Empty CSRF token
+	t.Run("EmptyCSRFToken", func(t *testing.T) {
+		body := url.Values{}
+		body.Set("csrf", "") // Empty token
+		body.Set("content", "Reply with empty CSRF token")
+
+		req, err := http.NewRequest("POST", replyURL, strings.NewReader(body.Encode()))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("HX-Request", "true")
+
+		// Add valid CSRF cookie
+		req.AddCookie(&http.Cookie{Name: "_csrf", Value: validCSRFCookie})
+
+		// Copy session cookies
+		for _, cookie := range client.Jar.Cookies(resp.Request.URL) {
+			req.AddCookie(cookie)
+		}
+
+		resp3, err := client.Do(req)
+		require.NoError(t, err)
+		defer resp3.Body.Close()
+
+		// Should return 400 Bad Request or 403 Forbidden for empty CSRF token
+		assert.True(t, resp3.StatusCode == http.StatusBadRequest || resp3.StatusCode == http.StatusForbidden,
+			"Expected HTTP status 400 or 403 for empty CSRF token, got %d", resp3.StatusCode)
+
+		// Verify no reply was created
+		allMessages, err := c.ORM.Message.Query().All(ctx)
+		require.NoError(t, err)
+		replyFound := false
+		for _, msg := range allMessages {
+			if msg.ThreadID != nil && *msg.ThreadID == parentMessage.ID && msg.Content == "Reply with empty CSRF token" {
+				replyFound = true
+				break
+			}
+		}
+		assert.False(t, replyFound, "No reply should be created with empty CSRF token")
+	})
+
+	// Test Case 7: Valid CSRF token and cookie (should succeed)
+	t.Run("ValidCSRFToken", func(t *testing.T) {
+		body := url.Values{}
+		body.Set("csrf", validToken) // Valid token
+		body.Set("content", "Valid reply with correct CSRF token")
+
+		req, err := http.NewRequest("POST", replyURL, strings.NewReader(body.Encode()))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("HX-Request", "true")
+		req.Header.Set("HX-Target", "thread-panel-replies")
+
+		// Add valid CSRF cookie
+		req.AddCookie(&http.Cookie{Name: "_csrf", Value: validCSRFCookie})
+
+		// Copy session cookies
+		for _, cookie := range client.Jar.Cookies(resp.Request.URL) {
+			req.AddCookie(cookie)
+		}
+
+		resp3, err := client.Do(req)
+		require.NoError(t, err)
+		defer resp3.Body.Close()
+
+		// Should return 200 OK or 201 Created for valid CSRF token
+		assert.True(t, resp3.StatusCode == http.StatusOK || resp3.StatusCode == http.StatusCreated,
+			"Expected HTTP status 200 or 201 for valid CSRF token, got %d", resp3.StatusCode)
+
+		// Verify reply was created
+		allMessages, err := c.ORM.Message.Query().All(ctx)
+		require.NoError(t, err)
+		replyFound := false
+		for _, msg := range allMessages {
+			if msg.ThreadID != nil && *msg.ThreadID == parentMessage.ID && msg.Content == "Valid reply with correct CSRF token" {
+				replyFound = true
+				break
+			}
+		}
+		assert.True(t, replyFound, "Reply should be created with valid CSRF token")
+	})
 }

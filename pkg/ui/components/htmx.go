@@ -21,7 +21,37 @@ func HtmxListeners(r *ui.Request) Node {
 	const htmxCSRF = `
 		document.body.addEventListener('htmx:configRequest', function(evt)  {
 			if (evt.detail.verb !== "get") {
-				evt.detail.parameters['csrf'] = '%s';
+				// Get CSRF token from form (if available) - this ensures we use the latest token
+				var csrfToken = null;
+				var form = evt.detail.elt;
+				
+				// First: try to get token from the form being submitted
+				if (form && form.tagName === 'FORM') {
+					var csrfInput = form.querySelector('input[name="csrf"]');
+					if (csrfInput && csrfInput.value) {
+						csrfToken = csrfInput.value;
+					}
+				}
+				
+				// Fallback: get token from _csrf cookie (source of truth for Echo)
+				if (!csrfToken) {
+					var cookies = document.cookie.split(';');
+					for (var i = 0; i < cookies.length; i++) {
+						var cookie = cookies[i].trim();
+						if (cookie.startsWith('_csrf=')) {
+							csrfToken = cookie.substring(7);
+							break;
+						}
+					}
+				}
+				
+				// Final fallback: use initial token from page load
+				if (!csrfToken) {
+					csrfToken = '%s';
+				}
+				
+				// Set CSRF token in request parameters
+				evt.detail.parameters['csrf'] = csrfToken;
 			}
 		})
 	`

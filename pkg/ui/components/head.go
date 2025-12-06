@@ -11,6 +11,7 @@ import (
 func JS() Node {
 	return Group{
 		Script(Src("https://unpkg.com/htmx.org@2.0.0/dist/htmx.min.js"), Defer()),
+		Script(Src("https://unpkg.com/htmx-ext-ws@2.0.4"), Defer()), // HTMX WebSocket extension
 		Script(Src("https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"), Defer()),
 	}
 }
