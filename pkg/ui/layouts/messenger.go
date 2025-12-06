@@ -39,11 +39,26 @@ func Messenger(r *ui.Request, content Node) Node {
 						Class("flex-1 flex flex-col"),
 						content,
 					),
-					// Right panel - Channel info (optional, can be toggled)
+					// Right panel - Thread panel (opens when thread is selected)
 					Div(
 						ID("right-panel"),
-						Class("hidden lg:block w-80 border-l border-base-300 bg-base-200"),
-						// Right panel content will be added via HTMX or components
+						// Base classes: hidden by default, fixed width, border, background
+						// Mobile: overlay/modal (fixed, full height, z-index)
+						// Desktop: sidebar (static, border-left)
+						Class("hidden w-80 border-l border-base-300 bg-base-200"),
+						Class("lg:relative lg:block"),                          // Desktop: relative positioning, visible when not hidden
+						Class("fixed inset-y-0 right-0 z-50 lg:static"),        // Mobile: fixed overlay, Desktop: static
+						Class("transition-transform duration-300 ease-in-out"), // Smooth slide animation
+						Class("transform translate-x-full lg:translate-x-0"),   // Mobile: slide from right, Desktop: no transform
+						Attr("data-thread-id", ""),                             // Will be set when thread panel is opened
+						// Right panel content will be added via HTMX when thread is opened
+					),
+					// Mobile overlay backdrop (only visible on mobile when panel is open)
+					Div(
+						ID("right-panel-backdrop"),
+						Class("hidden fixed inset-0 bg-black/50 z-40 lg:hidden"),
+						Class("transition-opacity duration-300 ease-in-out"),
+						Attr("onclick", "closeThreadPanel();"),
 					),
 				),
 			),

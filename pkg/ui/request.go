@@ -206,6 +206,16 @@ func fallbackPath(routeName string, routeParams ...any) string {
 			return fmt.Sprintf("/channel/%v", routeParams[0])
 		}
 		return "/channel/0"
+	case "messenger.message.thread.panel":
+		if len(routeParams) > 0 && routeParams[0] != nil {
+			return fmt.Sprintf("/message/%v/thread/panel", routeParams[0])
+		}
+		return "/message/0/thread/panel"
+	case "messenger.message.reply":
+		if len(routeParams) > 0 && routeParams[0] != nil {
+			return fmt.Sprintf("/message/%v/replies", routeParams[0])
+		}
+		return "/message/0/replies"
 	default:
 		// Для неизвестных routes возвращаем "/"
 		return "/"

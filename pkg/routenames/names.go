@@ -55,12 +55,12 @@ const (
 	MessengerChannelMessages     = "messenger.channel.messages"
 
 	// Message routes
-	MessengerMessageCreate  = "messenger.message.create"
-	MessengerMessageUpdate  = "messenger.message.update"
-	MessengerMessageDelete  = "messenger.message.delete"
-	MessengerMessageReplies = "messenger.message.replies"
-	MessengerMessageReply   = "messenger.message.reply"
-	MessengerMessageThread  = "messenger.message.thread"
+	MessengerMessageCreate      = "messenger.message.create"
+	MessengerMessageUpdate      = "messenger.message.update"
+	MessengerMessageDelete      = "messenger.message.delete"
+	MessengerMessageReplies     = "messenger.message.replies"
+	MessengerMessageReply       = "messenger.message.reply"
+	MessengerMessageThreadPanel = "messenger.message.thread.panel"
 
 	// Direct Message routes
 	MessengerDirectMessageList          = "messenger.direct_message.list"

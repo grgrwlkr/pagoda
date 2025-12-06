@@ -132,41 +132,66 @@ func messageItem(r *ui.Request, msg MessageData) Node {
 			Div(
 				Class("flex items-center gap-2 mt-2 text-sm"), // text-sm: маленький размер текста
 
-				// Кнопка "Ответить"
+				// Кнопка "Ответить" - открывает панель треда справа
 				Button(
+					Type("button"),                      // Важно: кнопка не должна отправлять форму
 					Class("btn btn-ghost btn-sm gap-1"), // btn-ghost: прозрачная кнопка; btn-sm: маленький размер; gap-1: отступ между иконкой и текстом
-					// hx-get: HTMX запрос GET для загрузки ответов
-					Attr("hx-get", r.Path("messenger.message.replies", msg.ID)),
-					// hx-target: куда вставить ответ (контейнер thread-{id})
-					Attr("hx-target", fmt.Sprintf("#thread-%d", msg.ID)),
+					// hx-get: HTMX запрос GET для открытия панели треда
+					Attr("hx-get", r.Path("messenger.message.thread.panel", msg.ID)),
+					// hx-target: куда вставить панель треда (правая панель)
+					Attr("hx-target", "#right-panel"),
 					// hx-swap: как вставлять (innerHTML - заменить содержимое)
 					Attr("hx-swap", "innerHTML"),
-					// onclick: показать/скрыть форму ответа (toggle класса hidden)
-					Attr("onclick", fmt.Sprintf("document.getElementById('thread-reply-form-%d').classList.toggle('hidden'); return false;", msg.ID)),
+					// hx-on::after-request: показать панель после загрузки с анимацией
+					Attr("hx-on::after-request", fmt.Sprintf(`
+						if (typeof openThreadPanel === 'function') {
+							openThreadPanel('%d');
+						} else {
+							// Fallback if function not available
+							var rightPanel = document.getElementById('right-panel');
+							if (rightPanel) {
+								rightPanel.classList.remove('hidden');
+								rightPanel.setAttribute('data-thread-id', '%d');
+							}
+						}
+					`, msg.ID, msg.ID)),
+					// Предотвращаем стандартное поведение кнопки
+					Attr("onclick", "event.preventDefault(); return false;"),
 					Text("💬 Reply"),
 				),
 
-				// Счётчик ответов (показываем только если есть ответы)
+				// Счётчик ответов (показываем только если есть ответы) - открывает панель треда
 				If(msg.ReplyCount > 0,
-					A(
-						Href(r.Path("messenger.message.thread", msg.ID)),                                          // Ссылка на страницу просмотра потока
-						Class("text-base-content/60 hover:text-base-content"),                                     // hover: изменение цвета при наведении
+					Button(
+						Type("button"), // Важно: кнопка не должна отправлять форму
+						Class("btn btn-ghost btn-sm text-base-content/60 hover:text-base-content"), // hover: изменение цвета при наведении
+						// hx-get: HTMX запрос GET для открытия панели треда
+						Attr("hx-get", r.Path("messenger.message.thread.panel", msg.ID)),
+						// hx-target: куда вставить панель треда (правая панель)
+						Attr("hx-target", "#right-panel"),
+						// hx-swap: как вставлять (innerHTML - заменить содержимое)
+						Attr("hx-swap", "innerHTML"),
+						// hx-on::after-request: показать панель после загрузки с анимацией
+						// Используем switchThreadPanel для плавного переключения между тредами
+						Attr("hx-on::after-request", fmt.Sprintf(`
+							if (typeof switchThreadPanel === 'function') {
+								switchThreadPanel('%d');
+							} else if (typeof openThreadPanel === 'function') {
+								openThreadPanel('%d');
+							} else {
+								// Fallback if function not available
+								var rightPanel = document.getElementById('right-panel');
+								if (rightPanel) {
+									rightPanel.classList.remove('hidden');
+									rightPanel.setAttribute('data-thread-id', '%d');
+								}
+							}
+						`, msg.ID, msg.ID, msg.ID)),
+						// Предотвращаем стандартное поведение кнопки
+						Attr("onclick", "event.preventDefault(); return false;"),
 						Text(fmt.Sprintf("%d %s", msg.ReplyCount, pluralize(msg.ReplyCount, "reply", "replies"))), // Правильное склонение (1 reply, 2 replies)
 					),
 				),
-			),
-
-			// Контейнер для ответов в потоке (изначально пустой, заполняется через HTMX)
-			Div(
-				ID(fmt.Sprintf("thread-%d", msg.ID)),               // ID для HTMX target
-				Class("mt-2 ml-8 border-l-2 border-base-300 pl-4"), // ml-8: левый отступ; border-l-2: левая граница для визуального разделения ответов
-			),
-
-			// Форма ответа в потоке (изначально скрыта, показывается при клике на "Reply")
-			Div(
-				ID(fmt.Sprintf("thread-reply-form-%d", msg.ID)),
-				Class("hidden mt-2 ml-8"),        // hidden: скрыта по умолчанию
-				renderThreadReplyForm(r, msg.ID), // Рендерим форму ответа
 			),
 		),
 	)
