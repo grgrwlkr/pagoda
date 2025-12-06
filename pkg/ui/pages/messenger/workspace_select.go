@@ -78,7 +78,7 @@ func WorkspaceSelect(ctx echo.Context, workspaces []*ent.Workspace) error {
 				Button(
 					Class("btn btn-outline btn-primary"),
 					Text("+ Create New Workspace"),
-					Attr("onclick", "workspace_create_modal.showModal()"),
+					Attr("@click", "$store.modal.openModal('workspace-create-modal')"),
 					Attr("hx-get", createFormPath),
 					Attr("hx-target", "#workspace-create-modal"),
 					Attr("hx-swap", "outerHTML"),

@@ -30,8 +30,9 @@ func Messenger(r *ui.Request, content Node) Node {
 			),
 			Body(
 				Class("h-screen overflow-hidden"),
-				// Alpine.js store for thread panel management (replaces global window.* functions)
+				// Alpine.js stores for component management
 				ThreadPanelStore(),
+				ModalStore(),
 				Div(
 					Class("flex h-full"),
 					// Left sidebar - Workspaces, Channels, DMs

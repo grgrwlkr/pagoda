@@ -41,7 +41,7 @@ func ChannelCreateModal(r *ui.Request, workspaceID int64, form *messenger.Channe
 
 	// Создаем CSRF input заранее, чтобы избежать проблем с nil
 	var csrfInput Node
-	if r != nil && r.CSRF != "" {
+	if r.CSRF != "" {
 		csrfInput = Input(
 			Type("hidden"),
 			Name("csrf"),
@@ -62,11 +62,12 @@ func ChannelCreateModal(r *ui.Request, workspaceID int64, form *messenger.Channe
 			Attr("hx-post", createPath),
 			Attr("hx-target", "body"),
 			Attr("hx-swap", "outerHTML"),
-			// Close modal after successful creation - use Alpine.js event
+			// Close modal after successful creation - use Alpine.js store
 			Attr("hx-on::after-request", `
 				if(event.detail.xhr.status === 200) {
-					const modal = document.getElementById('channel-create-modal');
-					if(modal) modal.close();
+					if (window.Alpine && window.Alpine.store && window.Alpine.store('modal')) {
+						window.Alpine.store('modal').closeModal('channel-create-modal');
+					}
 				}
 			`),
 			// CSRF token
@@ -86,7 +87,7 @@ func ChannelCreateModal(r *ui.Request, workspaceID int64, form *messenger.Channe
 				Button(
 					Type("button"),
 					Class("btn btn-sm btn-circle btn-ghost"),
-					Attr("@click", "document.getElementById('channel-create-modal').close()"),
+					Attr("@click", "$store.modal.closeModal('channel-create-modal')"),
 					Text("✕"),
 				),
 			),
@@ -184,7 +185,7 @@ func ChannelCreateModal(r *ui.Request, workspaceID int64, form *messenger.Channe
 				Button(
 					Type("button"),
 					Class("btn btn-ghost"),
-					Attr("@click", "document.getElementById('channel-create-modal').close()"),
+					Attr("@click", "$store.modal.closeModal('channel-create-modal')"),
 					Text("Cancel"),
 				),
 				Button(
@@ -244,11 +245,12 @@ func WorkspaceCreateModal(r *ui.Request, form *messenger.WorkspaceForm) Node {
 			Attr("hx-post", createPath),
 			Attr("hx-target", "body"),
 			Attr("hx-swap", "outerHTML"),
-			// Close modal after successful creation - use Alpine.js event
+			// Close modal after successful creation - use Alpine.js store
 			Attr("hx-on::after-request", `
 				if(event.detail.xhr.status === 200) {
-					const modal = document.getElementById('workspace-create-modal');
-					if(modal) modal.close();
+					if (window.Alpine && window.Alpine.store && window.Alpine.store('modal')) {
+						window.Alpine.store('modal').closeModal('workspace-create-modal');
+					}
 				}
 			`),
 			// CSRF token
@@ -268,7 +270,7 @@ func WorkspaceCreateModal(r *ui.Request, form *messenger.WorkspaceForm) Node {
 				Button(
 					Type("button"),
 					Class("btn btn-sm btn-circle btn-ghost"),
-					Attr("@click", "document.getElementById('workspace-create-modal').close()"),
+					Attr("@click", "$store.modal.closeModal('workspace-create-modal')"),
 					Text("✕"),
 				),
 			),
@@ -374,7 +376,7 @@ func WorkspaceCreateModal(r *ui.Request, form *messenger.WorkspaceForm) Node {
 				Button(
 					Type("button"),
 					Class("btn btn-ghost"),
-					Attr("@click", "document.getElementById('workspace-create-modal').close()"),
+					Attr("@click", "$store.modal.closeModal('workspace-create-modal')"),
 					Text("Cancel"),
 				),
 				Button(

@@ -217,15 +217,23 @@ func renderThreadReplyForm(r *ui.Request, messageID int64) Node {
 		Attr("hx-target", fmt.Sprintf("#thread-%d", messageID)),       // Куда вставить ответ
 		Attr("hx-swap", "beforeend"),                                  // Вставить в конец контейнера
 		// Alpine.js для управления состоянием формы
+		// Alpine.js для управления состоянием формы (видимость и очистка)
 		Attr("x-data", `{
+			visible: true,
 			clearForm() {
 				const textarea = this.$el.querySelector('textarea');
 				if (textarea) {
 					textarea.value = '';
 					textarea.style.height = 'auto';
 				}
+			},
+			hideForm() {
+				this.visible = false;
 			}
 		}`),
+		// Управление видимостью через Alpine.js x-show
+		Attr("x-show", "visible"),
+		Style("display: none;"), // Hidden by default, Alpine.js will show when visible=true
 		// hx-on::after-request: выполнить после успешной отправки (очистить textarea)
 		Attr("hx-on::after-request", "this.clearForm()"),
 
@@ -265,11 +273,11 @@ func renderThreadReplyForm(r *ui.Request, messageID int64) Node {
 				Class("btn btn-primary btn-sm"), // btn-primary: основная кнопка; btn-sm: маленький размер
 				Text("Reply"),
 			),
-			// Кнопка отмены (скрывает форму) - используем Alpine.js @click
+			// Кнопка отмены (скрывает форму) - используем Alpine.js метод
 			Button(
 				Type("button"),                // Не отправляет форму
 				Class("btn btn-ghost btn-sm"), // btn-ghost: прозрачная кнопка
-				Attr("@click", fmt.Sprintf("document.getElementById('thread-reply-form-%d').classList.add('hidden');", messageID)), // Скрываем форму через Alpine.js
+				Attr("@click", "hideForm()"),  // Скрываем форму через Alpine.js метод
 				Text("Cancel"),
 			),
 		),

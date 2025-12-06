@@ -59,12 +59,30 @@ func HtmxListeners(r *ui.Request) Node {
 	const htmxModal = `
 		document.body.addEventListener('htmx:afterSwap', function(evt) {
 			// Автоматически открываем модальное окно, если был вставлен dialog элемент
-			const modal = document.getElementById('channel-create-modal');
-			if (modal && modal.tagName === 'DIALOG' && typeof modal.showModal === 'function') {
-				// Используем requestAnimationFrame для гарантии, что элемент полностью в DOM
-				requestAnimationFrame(function() {
-					modal.showModal();
-				});
+			// Use Alpine.js store for modal management
+			if (window.Alpine && window.Alpine.store && window.Alpine.store('modal')) {
+				// Check if channel-create-modal was inserted
+				const modal = document.getElementById('channel-create-modal');
+				if (modal && modal.tagName === 'DIALOG') {
+					requestAnimationFrame(function() {
+						window.Alpine.store('modal').openModal('channel-create-modal');
+					});
+				}
+				// Check if workspace-create-modal was inserted
+				const workspaceModal = document.getElementById('workspace-create-modal');
+				if (workspaceModal && workspaceModal.tagName === 'DIALOG') {
+					requestAnimationFrame(function() {
+						window.Alpine.store('modal').openModal('workspace-create-modal');
+					});
+				}
+			} else {
+				// Fallback if Alpine.js store not available
+				const modal = document.getElementById('channel-create-modal');
+				if (modal && modal.tagName === 'DIALOG' && typeof modal.showModal === 'function') {
+					requestAnimationFrame(function() {
+						modal.showModal();
+					});
+				}
 			}
 		});
 	`
