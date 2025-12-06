@@ -35,10 +35,10 @@ func ThreadPanel(r *ui.Request, parent MessageData, replies []MessageData, hasMo
 					Text("Thread"),
 				),
 			),
-			// Close button
+			// Close button - use Alpine.js store method instead of onclick
 			Button(
 				Class("btn btn-ghost btn-sm btn-circle"),
-				Attr("onclick", "closeThreadPanel();"),
+				Attr("@click", "$store.threadPanel.closeThreadPanel()"),
 				Text("✕"),
 			),
 		),
@@ -124,25 +124,86 @@ func renderThreadReplyItem(r *ui.Request, reply MessageData) Node {
 // renderThreadPanelReplyForm creates a form for replying in the thread panel
 func renderThreadPanelReplyForm(r *ui.Request, messageID int64) Node {
 	return Form(
-		Class("flex gap-2"),
+		Class("flex flex-col gap-2"),
 		Method("POST"),
 		Action(r.Path("messenger.message.reply", messageID)),
 		Attr("hx-post", r.Path("messenger.message.reply", messageID)),
 		Attr("hx-target", "#thread-panel-replies"),
 		Attr("hx-swap", "beforeend"),
+		// Alpine.js component for error display and form state
+		Attr("x-data", `{
+			errorMessage: '',
+			showError(msg) {
+				this.errorMessage = msg;
+				// Auto-remove error message after 5 seconds
+				setTimeout(() => {
+					this.errorMessage = '';
+				}, 5000);
+			},
+			init() {
+				// Listen for error events from HTMX
+				this.$el.addEventListener('show-error', (e) => {
+					this.showError(e.detail.message);
+				});
+			}
+		}`),
+		// Error message display (always rendered, visibility controlled by Alpine.js)
+		Div(
+			Class("thread-reply-error alert alert-error"),
+			Attr("x-show", "errorMessage !== ''"),
+			Attr("x-text", "errorMessage"),
+		),
+		// Form content
+		Div(
+			Class("flex gap-2"),
+			// CSRF token from context - same token used throughout the session
+			components.CSRFInput(r),
+			Div(
+				Class("flex-1"),
+				Textarea(
+					Name("content"),
+					Class("textarea textarea-bordered w-full resize-none text-sm"),
+					Placeholder("Write a reply..."),
+					Rows("2"),
+					Required(),
+					Attr("x-data", `{
+						resize() {
+							this.$el.style.height = "auto";
+							this.$el.style.height = this.$el.scrollHeight + "px";
+						}
+					}`),
+					Attr("@input", "resize()"),
+				),
+			),
+			Div(
+				Class("flex flex-col gap-2"),
+				Button(
+					Type("submit"),
+					Class("btn btn-primary btn-sm"),
+					Text("Reply"),
+				),
+			),
+		),
+		// HTMX event handlers
 		Attr("hx-on::after-request", `
 			// Only clear form if request was successful
 			if (event.detail.xhr.status >= 200 && event.detail.xhr.status < 300) {
 				this.querySelector('textarea').value = '';
 				this.querySelector('textarea').style.height = 'auto';
-				// Scroll to new reply after adding it
-				if (typeof scrollToNewReply === 'function') {
-					setTimeout(scrollToNewReply, 100);
+				// Clear error message
+				if (this._x_dataStack && this._x_dataStack[0]) {
+					this._x_dataStack[0].errorMessage = '';
+				}
+				// Scroll to new reply after adding it - use Alpine.js store
+				if (window.Alpine && window.Alpine.store && window.Alpine.store('threadPanel')) {
+					setTimeout(() => {
+						window.Alpine.store('threadPanel').scrollToNewReply();
+					}, 100);
 				}
 			}
 		`),
 		Attr("hx-on::htmx:response-error", `
-			// Handle errors gracefully - show inline error message instead of replacing content with error page
+			// Handle errors gracefully - use Alpine.js component for error display
 			var errorMsg = 'Failed to send reply. Please try again.';
 			
 			// Try to get error message from response body if available
@@ -159,53 +220,16 @@ func renderThreadPanelReplyForm(r *ui.Request, messageID int64) Node {
 				}
 			}
 			
-			// Remove existing error message if any
-			var existingError = event.target.querySelector('.thread-reply-error');
-			if (existingError) {
-				existingError.remove();
+			// Use Alpine.js component for error display
+			const form = event.target;
+			if (form && form._x_dataStack && form._x_dataStack[0]) {
+				form._x_dataStack[0].showError(errorMsg);
+			} else {
+				// Fallback: trigger custom event for Alpine.js to handle
+				form.dispatchEvent(new CustomEvent('show-error', { detail: { message: errorMsg } }));
 			}
-			
-			// Create and show error message inline
-			var errorDiv = document.createElement('div');
-			errorDiv.className = 'thread-reply-error alert alert-error mt-2';
-			errorDiv.textContent = errorMsg;
-			event.target.insertBefore(errorDiv, event.target.firstChild);
-			
-			// Auto-remove error message after 5 seconds
-			setTimeout(function() {
-				if (errorDiv.parentNode) {
-					errorDiv.remove();
-				}
-			}, 5000);
 			
 			event.preventDefault(); // Prevent HTMX from replacing content with error page
 		`),
-		// CSRF token from context - same token used throughout the session
-		components.CSRFInput(r),
-		Div(
-			Class("flex-1"),
-			Textarea(
-				Name("content"),
-				Class("textarea textarea-bordered w-full resize-none text-sm"),
-				Placeholder("Write a reply..."),
-				Rows("2"),
-				Required(),
-				Attr("x-data", `{
-					resize() {
-						this.$el.style.height = "auto";
-						this.$el.style.height = this.$el.scrollHeight + "px";
-					}
-				}`),
-				Attr("@input", "resize()"),
-			),
-		),
-		Div(
-			Class("flex flex-col gap-2"),
-			Button(
-				Type("submit"),
-				Class("btn btn-primary btn-sm"),
-				Text("Reply"),
-			),
-		),
 	)
 }

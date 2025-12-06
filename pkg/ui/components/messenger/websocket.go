@@ -114,40 +114,36 @@ func WebSocketConnection(r *ui.Request, wsPath string, channelID, dmID int64) No
 			}
 		},
 		handleUserTyping(data) {
-			this.showTypingIndicator(data.user_id, data.user_name || 'Someone');
+			// Use Alpine.js component method instead of innerHTML
+			const container = document.getElementById('typing-indicator-container');
+			if (container && container._x_dataStack && container._x_dataStack[0]) {
+				// Call Alpine.js method to show typing indicator
+				container._x_dataStack[0].showTyping(data.user_id, data.user_name || 'Someone');
+			} else {
+				// Fallback: trigger custom event that Alpine.js can listen to
+				if (container) {
+					container.dispatchEvent(new CustomEvent('show-typing', {
+						detail: { userID: data.user_id, userName: data.user_name || 'Someone' }
+					}));
+				}
+			}
 		},
 		handleUserStatus(data, isOnline) {
 			// Update user status indicator
 			console.log('User status:', data.user_id, isOnline);
 		},
-		showTypingIndicator(userID, userName) {
-			if (this.typingUsers.has(userID)) {
-				clearTimeout(this.typingUsers.get(userID));
-			}
-			const container = document.getElementById('typing-indicator-container');
-			if (container) {
-				container.innerHTML = '<div class="px-4 py-2 text-sm text-base-content/60 italic">' + 
-					userName + ' is typing<span class="inline-block ml-1">...</span></div>';
-			}
-			const timeout = setTimeout(() => {
-				this.typingUsers.delete(userID);
-				this.updateTypingIndicator();
-			}, 3000);
-			this.typingUsers.set(userID, timeout);
-		},
 		clearTypingIndicator() {
-			this.typingUsers.clear();
+			// Use Alpine.js component method instead of innerHTML
 			const container = document.getElementById('typing-indicator-container');
-			if (container) container.innerHTML = '';
-		},
-		updateTypingIndicator() {
-			const container = document.getElementById('typing-indicator-container');
-			if (!container || this.typingUsers.size === 0) {
-				if (container) container.innerHTML = '';
-				return;
+			if (container && container._x_dataStack && container._x_dataStack[0]) {
+				// Call Alpine.js method to clear typing indicator
+				container._x_dataStack[0].clearTyping();
+			} else {
+				// Fallback: trigger custom event
+				if (container) {
+					container.dispatchEvent(new CustomEvent('clear-typing'));
+				}
 			}
-			container.innerHTML = '<div class="px-4 py-2 text-sm text-base-content/60 italic">' + 
-				'Someone is typing<span class="inline-block ml-1">...</span></div>';
 		},
 		scrollToBottom() {
 			const messageList = document.getElementById('message-list');

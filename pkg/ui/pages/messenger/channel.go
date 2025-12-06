@@ -21,11 +21,8 @@ func Channel(ctx echo.Context, channelID int64, channelName string, messages []m
 		channelHeader(r, channelID, channelName),
 		// Messages list
 		messengerComponents.MessageList(r, messages),
-		// Typing indicator (will be updated via WebSocket)
-		Div(
-			ID("typing-indicator-container"),
-			// TypingIndicator will be added via WebSocket updates
-		),
+		// Typing indicator (managed via Alpine.js, updated via WebSocket)
+		messengerComponents.TypingIndicator(),
 		// Message input
 		messengerComponents.MessageInput(r, channelID, false), // false = not a DM
 		// WebSocket connection via HTMX (replaces JavaScript WebSocket)
@@ -52,8 +49,11 @@ func renderWebSocketReloadButtons(r *ui.Request, messages []messengerComponents.
 		Attr("hx-target", "#right-panel"),
 		Attr("hx-swap", "innerHTML"),
 		Attr("hx-on::after-request", `
-			if (typeof scrollToNewReply === 'function') {
-				setTimeout(scrollToNewReply, 100);
+			// Use Alpine.js store method instead of global function
+			if (window.Alpine && window.Alpine.store && window.Alpine.store('threadPanel')) {
+				setTimeout(() => {
+					window.Alpine.store('threadPanel').scrollToNewReply();
+				}, 100);
 			}
 		`),
 	)

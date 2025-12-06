@@ -28,12 +28,9 @@ func MessageInput(r *ui.Request, channelIDOrDMID int64, isDM bool) Node {
 	return Div(
 		Class("border-t border-base-300 p-4 bg-base-100"), // border-t: верхняя граница; p-4: отступы; bg-base-100: цвет фона
 
-		// Контейнер для превью загружаемых файлов (изначально скрыт)
-		// Показывается через JavaScript при выборе файлов
-		Div(
-			ID("file-preview-container"),              // ID для JavaScript манипуляций
-			Class("mb-2 flex flex-wrap gap-2 hidden"), // mb-2: нижний отступ; flex-wrap: перенос на новую строку; gap-2: отступ между превью; hidden: скрыт по умолчанию
-		),
+		// Контейнер для превью загружаемых файлов (управляется через Alpine.js)
+		// Заменяет innerHTML манипуляции на Alpine.js реактивное состояние
+		FilePreviewContainer(),
 
 		// Основная форма для отправки сообщения
 		Form(
@@ -49,11 +46,23 @@ func MessageInput(r *ui.Request, channelIDOrDMID int64, isDM bool) Node {
 			Attr("hx-swap", "beforeend"),               // Вставить в конец списка сообщений
 			Attr("hx-encoding", "multipart/form-data"), // Кодировка для файлов
 			Attr("hx-trigger", "submit"),               // Явно указываем триггер submit
-			// Предотвращаем обычную отправку формы (fallback для браузеров без JS)
-			Attr("onsubmit", "event.preventDefault(); return false;"),
+			// Предотвращаем обычную отправку формы через Alpine.js
+			Attr("@submit.prevent", ""),
 			// hx-on::after-request: выполнить после успешной отправки
-			// Очищаем textarea, сбрасываем высоту, очищаем превью файлов и input файлов
-			Attr("hx-on::after-request", "this.querySelector('textarea').value = ''; this.querySelector('textarea').style.height = 'auto'; document.getElementById('file-preview-container').innerHTML = ''; document.getElementById('file-preview-container').classList.add('hidden'); document.getElementById('file-input').value = '';"),
+			// Очищаем textarea, сбрасываем высоту, очищаем превью файлов через Alpine.js
+			Attr("hx-on::after-request", `
+				// Clear textarea
+				const textarea = this.querySelector('textarea');
+				if (textarea) {
+					textarea.value = '';
+					textarea.style.height = 'auto';
+				}
+				// Clear file previews via Alpine.js
+				const previewContainer = document.getElementById('file-preview-container');
+				if (previewContainer && previewContainer._x_dataStack && previewContainer._x_dataStack[0]) {
+					previewContainer._x_dataStack[0].clearFiles();
+				}
+			`),
 
 			// CSRF токен для защиты от подделки запросов
 			components.CSRFInput(r),
@@ -83,9 +92,8 @@ func MessageInput(r *ui.Request, channelIDOrDMID int64, isDM bool) Node {
 					// Shift+Enter = новая строка, Enter = отправить сообщение
 					Attr("@keydown.enter", "if(!event.shiftKey) { event.preventDefault(); document.getElementById('message-form').requestSubmit(); }"),
 
-					// Обработка drag & drop файлов
-					Attr("ondrop", "handleFileDrop(event); return false;"),      // ondrop: когда файл отпущен над textarea
-					Attr("ondragover", "event.preventDefault(); return false;"), // ondragover: предотвращаем стандартное поведение браузера
+					// Обработка drag & drop файлов через Alpine.js (управляется в FilePreviewContainer)
+					// Drag & drop обрабатывается в FilePreviewContainer.init()
 				),
 			),
 
@@ -99,11 +107,11 @@ func MessageInput(r *ui.Request, channelIDOrDMID int64, isDM bool) Node {
 					Title("Upload file"),                             // Подсказка при наведении
 					Input(
 						Type("file"),     // Поле для выбора файлов
-						ID("file-input"), // ID для JavaScript манипуляций
+						ID("file-input"), // ID для Alpine.js компонента FilePreviewContainer
 						Name("files"),    // Имя поля для отправки на сервер (множественное)
 						Class("hidden"),  // Скрываем стандартный input (используем кастомную кнопку)
 						Attr("multiple"), // Разрешаем выбор нескольких файлов
-						Attr("onchange", "handleFileSelect(event)"), // Обработчик выбора файлов через диалог
+						// File selection handled by Alpine.js in FilePreviewContainer.init()
 					),
 					Text("📎"), // Иконка скрепки
 				),
@@ -118,102 +126,7 @@ func MessageInput(r *ui.Request, channelIDOrDMID int64, isDM bool) Node {
 				),
 			),
 		),
-
-		// JavaScript код для обработки файлов
-		// Встроенный скрипт для работы с drag & drop и превью файлов
-		Script(
-			Raw(`
-			// Обработчик выбора файлов через диалог (кнопка "📎")
-			function handleFileSelect(event) {
-				const files = event.target.files; // Получаем выбранные файлы
-				showFilePreviews(files); // Показываем превью
-			}
-			
-			// Обработчик drag & drop файлов на textarea
-			function handleFileDrop(event) {
-				event.preventDefault(); // Предотвращаем стандартное поведение браузера (открытие файла)
-				const files = event.dataTransfer.files; // Получаем перетащенные файлы
-				const fileInput = document.getElementById('file-input'); // Находим скрытый input
-				
-				// Создаём DataTransfer для программной установки файлов в input
-				// Это необходимо, чтобы файлы были доступны при отправке формы
-				const dataTransfer = new DataTransfer();
-				for (let i = 0; i < files.length; i++) {
-					dataTransfer.items.add(files[i]); // Добавляем каждый файл
-				}
-				fileInput.files = dataTransfer.files; // Устанавливаем файлы в input
-				showFilePreviews(files); // Показываем превью
-			}
-			
-			// Функция отображения превью выбранных файлов
-			function showFilePreviews(files) {
-				const container = document.getElementById('file-preview-container');
-				container.innerHTML = ''; // Очищаем предыдущие превью
-				
-				// Если файлов нет, скрываем контейнер
-				if (files.length === 0) {
-					container.classList.add('hidden');
-					return;
-				}
-				
-				// Показываем контейнер
-				container.classList.remove('hidden');
-				
-				// Создаём превью для каждого файла
-				for (let i = 0; i < files.length; i++) {
-					const file = files[i];
-					const div = document.createElement('div');
-					div.className = 'relative inline-block p-2 border border-base-300 rounded-lg bg-base-200';
-					
-					// Для изображений показываем миниатюру
-					if (file.type.startsWith('image/')) {
-						const img = document.createElement('img');
-						img.src = URL.createObjectURL(file); // Создаём временный URL для превью
-						img.className = 'max-w-20 max-h-20 object-cover rounded'; // Ограничиваем размер
-						div.appendChild(img);
-					} else {
-						// Для других файлов показываем иконку
-						const icon = document.createElement('div');
-						icon.className = 'text-2xl';
-						icon.textContent = '📎';
-						div.appendChild(icon);
-					}
-					
-					// Показываем имя файла
-					const name = document.createElement('div');
-					name.className = 'text-xs truncate max-w-20'; // text-xs: маленький размер; truncate: обрезать длинные имена
-					name.textContent = file.name;
-					div.appendChild(name);
-					
-					// Кнопка удаления файла из списка
-					const removeBtn = document.createElement('button');
-					removeBtn.type = 'button'; // Не отправляет форму
-					removeBtn.className = 'absolute -top-1 -right-1 btn btn-xs btn-circle btn-error'; // Абсолютное позиционирование в правом верхнем углу
-					removeBtn.textContent = '×';
-					// Обработчик удаления файла
-					removeBtn.onclick = function() {
-						removeFile(i); // Вызываем функцию удаления с индексом файла
-					};
-					div.appendChild(removeBtn);
-					
-					container.appendChild(div); // Добавляем превью в контейнер
-				}
-			}
-			
-			// Функция удаления файла из списка перед отправкой
-			function removeFile(index) {
-				const fileInput = document.getElementById('file-input');
-				// Создаём новый DataTransfer с файлами, исключая удаляемый
-				const dataTransfer = new DataTransfer();
-				for (let i = 0; i < fileInput.files.length; i++) {
-					if (i !== index) { // Пропускаем файл с указанным индексом
-						dataTransfer.items.add(fileInput.files[i]);
-					}
-				}
-				fileInput.files = dataTransfer.files; // Обновляем список файлов
-				showFilePreviews(fileInput.files); // Обновляем превью
-			}
-			`),
-		),
+		// File handling is now done via Alpine.js in FilePreviewContainer component
+		// No JavaScript needed - all file preview logic is in Alpine.js
 	)
 }

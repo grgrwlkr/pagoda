@@ -80,7 +80,7 @@ func ChannelCreateModal(r *ui.Request, workspaceID int64, form *messenger.Channe
 				Button(
 					Type("button"),
 					Class("btn btn-sm btn-circle btn-ghost"),
-					Attr("onclick", "document.getElementById('channel-create-modal').close()"),
+					Attr("@click", "document.getElementById('channel-create-modal').close()"),
 					Text("✕"),
 				),
 			),
@@ -178,7 +178,7 @@ func ChannelCreateModal(r *ui.Request, workspaceID int64, form *messenger.Channe
 				Button(
 					Type("button"),
 					Class("btn btn-ghost"),
-					Attr("onclick", "document.getElementById('channel-create-modal').close()"),
+					Attr("@click", "document.getElementById('channel-create-modal').close()"),
 					Text("Cancel"),
 				),
 				Button(
@@ -198,8 +198,8 @@ func ChannelCreateModal(r *ui.Request, workspaceID int64, form *messenger.Channe
 
 	// Возвращаем dialog элемент через Raw, так как gomponents не поддерживает dialog напрямую
 	// Формируем HTML вручную для dialog элемента
-	// Добавляем onclick для закрытия при клике на backdrop
-	return Raw(fmt.Sprintf(`<dialog id="channel-create-modal" class="modal" onclick="if(event.target === this) this.close()">%s%s</dialog>`,
+	// Используем Alpine.js @click вместо onclick для закрытия при клике на backdrop
+	return Raw(fmt.Sprintf(`<dialog id="channel-create-modal" class="modal" @click="if(event.target === this) this.close()">%s%s</dialog>`,
 		renderNodeToString(modalContent),
 		renderNodeToString(backdropForm),
 	))
@@ -256,7 +256,7 @@ func WorkspaceCreateModal(r *ui.Request, form *messenger.WorkspaceForm) Node {
 				Button(
 					Type("button"),
 					Class("btn btn-sm btn-circle btn-ghost"),
-					Attr("onclick", "document.getElementById('workspace-create-modal').close()"),
+					Attr("@click", "document.getElementById('workspace-create-modal').close()"),
 					Text("✕"),
 				),
 			),
@@ -362,7 +362,7 @@ func WorkspaceCreateModal(r *ui.Request, form *messenger.WorkspaceForm) Node {
 				Button(
 					Type("button"),
 					Class("btn btn-ghost"),
-					Attr("onclick", "document.getElementById('workspace-create-modal').close()"),
+					Attr("@click", "document.getElementById('workspace-create-modal').close()"),
 					Text("Cancel"),
 				),
 				Button(
@@ -381,7 +381,8 @@ func WorkspaceCreateModal(r *ui.Request, form *messenger.WorkspaceForm) Node {
 	)
 
 	// Возвращаем dialog элемент через Raw, так как gomponents не поддерживает dialog напрямую
-	return Raw(fmt.Sprintf(`<dialog id="workspace-create-modal" class="modal" onclick="if(event.target === this) this.close()">%s%s</dialog>`,
+	// Используем Alpine.js @click вместо onclick для закрытия при клике на backdrop
+	return Raw(fmt.Sprintf(`<dialog id="workspace-create-modal" class="modal" @click="if(event.target === this) this.close()">%s%s</dialog>`,
 		renderNodeToString(modalContent),
 		renderNodeToString(backdropForm),
 	))

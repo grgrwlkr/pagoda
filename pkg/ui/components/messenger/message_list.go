@@ -143,11 +143,12 @@ func messageItem(r *ui.Request, msg MessageData) Node {
 					// hx-swap: как вставлять (innerHTML - заменить содержимое)
 					Attr("hx-swap", "innerHTML"),
 					// hx-on::after-request: показать панель после загрузки с анимацией
+					// Use Alpine.js store method instead of global function
 					Attr("hx-on::after-request", fmt.Sprintf(`
-						if (typeof openThreadPanel === 'function') {
-							openThreadPanel('%d');
+						if (window.Alpine && window.Alpine.store && window.Alpine.store('threadPanel')) {
+							window.Alpine.store('threadPanel').openThreadPanel('%d');
 						} else {
-							// Fallback if function not available
+							// Fallback if Alpine.js store not available
 							var rightPanel = document.getElementById('right-panel');
 							if (rightPanel) {
 								rightPanel.classList.remove('hidden');
@@ -156,7 +157,7 @@ func messageItem(r *ui.Request, msg MessageData) Node {
 						}
 					`, msg.ID, msg.ID)),
 					// Предотвращаем стандартное поведение кнопки
-					Attr("onclick", "event.preventDefault(); return false;"),
+					Attr("@click", "event.preventDefault(); return false;"),
 					Text("💬 Reply"),
 				),
 
@@ -172,23 +173,21 @@ func messageItem(r *ui.Request, msg MessageData) Node {
 						// hx-swap: как вставлять (innerHTML - заменить содержимое)
 						Attr("hx-swap", "innerHTML"),
 						// hx-on::after-request: показать панель после загрузки с анимацией
-						// Используем switchThreadPanel для плавного переключения между тредами
+						// Используем Alpine.js store для плавного переключения между тредами
 						Attr("hx-on::after-request", fmt.Sprintf(`
-							if (typeof switchThreadPanel === 'function') {
-								switchThreadPanel('%d');
-							} else if (typeof openThreadPanel === 'function') {
-								openThreadPanel('%d');
+							if (window.Alpine && window.Alpine.store && window.Alpine.store('threadPanel')) {
+								window.Alpine.store('threadPanel').switchThreadPanel('%d');
 							} else {
-								// Fallback if function not available
+								// Fallback if Alpine.js store not available
 								var rightPanel = document.getElementById('right-panel');
 								if (rightPanel) {
 									rightPanel.classList.remove('hidden');
 									rightPanel.setAttribute('data-thread-id', '%d');
 								}
 							}
-						`, msg.ID, msg.ID, msg.ID)),
-						// Предотвращаем стандартное поведение кнопки
-						Attr("onclick", "event.preventDefault(); return false;"),
+						`, msg.ID, msg.ID)),
+						// Предотвращаем стандартное поведение кнопки через Alpine.js
+						Attr("@click.prevent", ""),
 						Text(fmt.Sprintf("%d %s", msg.ReplyCount, pluralize(msg.ReplyCount, "reply", "replies"))), // Правильное склонение (1 reply, 2 replies)
 					),
 				),
@@ -256,11 +255,11 @@ func renderThreadReplyForm(r *ui.Request, messageID int64) Node {
 				Class("btn btn-primary btn-sm"), // btn-primary: основная кнопка; btn-sm: маленький размер
 				Text("Reply"),
 			),
-			// Кнопка отмены (скрывает форму)
+			// Кнопка отмены (скрывает форму) - используем Alpine.js @click
 			Button(
 				Type("button"),                // Не отправляет форму
 				Class("btn btn-ghost btn-sm"), // btn-ghost: прозрачная кнопка
-				Attr("onclick", fmt.Sprintf("document.getElementById('thread-reply-form-%d').classList.add('hidden');", messageID)), // Добавляет класс hidden
+				Attr("@click", fmt.Sprintf("document.getElementById('thread-reply-form-%d').classList.add('hidden');", messageID)), // Скрываем форму через Alpine.js
 				Text("Cancel"),
 			),
 		),

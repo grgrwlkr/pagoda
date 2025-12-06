@@ -60,12 +60,16 @@ func imageAttachment(r *ui.Request, attachment FileAttachmentData, sizeStr strin
 		Div(
 			Class("relative"), // relative: для абсолютного позиционирования (если понадобится)
 			// Превью изображения
-			Img(
-				Src(attachment.URL),                       // URL изображения
-				Alt(attachment.Filename),                  // Альтернативный текст для доступности
-				Class("max-w-full h-auto cursor-pointer"), // max-w-full: максимальная ширина 100%; h-auto: автоматическая высота; cursor-pointer: курсор-указатель
-				Attr("onclick", fmt.Sprintf("window.open('%s', '_blank')", attachment.URL)), // При клике открываем изображение в новой вкладке
-				Title("Click to view full size"),                                            // Подсказка при наведении
+			A(
+				Href(attachment.URL),
+				Target("_blank"),
+				Rel("noopener noreferrer"),
+				Img(
+					Src(attachment.URL),                       // URL изображения
+					Alt(attachment.Filename),                  // Альтернативный текст для доступности
+					Class("max-w-full h-auto cursor-pointer"), // max-w-full: максимальная ширина 100%; h-auto: автоматическая высота; cursor-pointer: курсор-указатель
+					Title("Click to view full size"),          // Подсказка при наведении
+				),
 			),
 		),
 		// Информация о файле (имя и размер)
